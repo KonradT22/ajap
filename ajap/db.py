@@ -73,6 +73,11 @@ def migrate_db(db_path: str) -> None:
         if "description" not in existing:
             conn.execute("ALTER TABLE job_applications ADD COLUMN description TEXT")
             logger.info("Schema migration: added 'description' column")
+        if "description_source" not in existing:
+            conn.execute(
+                "ALTER TABLE job_applications ADD COLUMN description_source TEXT"
+            )
+            logger.info("Schema migration: added 'description_source' column")
 
 
 def insert_job(
@@ -160,9 +165,12 @@ def update_status(conn: sqlite3.Connection, job_hash: str, status: str) -> None:
 
 
 def update_description(
-    conn: sqlite3.Connection, job_hash: str, description: str | None
+    conn: sqlite3.Connection,
+    job_hash: str,
+    description: str | None,
+    source: str | None = None,
 ) -> None:
     conn.execute(
-        "UPDATE job_applications SET description = ? WHERE job_hash = ?",
-        (description, job_hash),
+        "UPDATE job_applications SET description = ?, description_source = ? WHERE job_hash = ?",
+        (description, source, job_hash),
     )

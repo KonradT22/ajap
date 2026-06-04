@@ -99,7 +99,8 @@ def _clean_html(html: str) -> str:
 def detect_ats(url: str) -> tuple[str, dict]:
     """Return (ats_type, params) for the URL.
 
-    ats_type values: 'greenhouse' | 'greenhouse_embed' | 'lever' | 'ashby' | 'other'
+    ats_type values:
+      'greenhouse' | 'greenhouse_embed' | 'workday' | 'lever' | 'ashby' | 'other'
     """
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
@@ -107,8 +108,27 @@ def detect_ats(url: str) -> tuple[str, dict]:
     qs = parse_qs(parsed.query)
     parts = [p for p in path.split("/") if p]
 
-    # Greenhouse v2: job-boards.greenhouse.io/BOARD/jobs/JOB_ID
-    if host == "job-boards.greenhouse.io" and len(parts) >= 3 and parts[1] == "jobs":
+    # Greenhouse direct board URLs (US + EU variants):
+    #   job-boards.greenhouse.io/BOARD/jobs/JOB_ID
+    #   job-boards.eu.greenhouse.io/BOARD/jobs/JOB_ID
+    #   boards.greenhouse.io/BOARD/jobs/JOB_ID
+    if (
+        host
+        in (
+            "job-boards.greenhouse.io",
+            "job-boards.eu.greenhouse.io",
+        )
+        and len(parts) >= 3
+        and parts[1] == "jobs"
+    ):
+        return "greenhouse", {"board": parts[0], "job_id": parts[2]}
+
+    if (
+        host == "boards.greenhouse.io"
+        and "embed" not in path
+        and len(parts) >= 3
+        and parts[1] == "jobs"
+    ):
         return "greenhouse", {"board": parts[0], "job_id": parts[2]}
 
     # Greenhouse embed: boards.greenhouse.io/embed/job_app?token=TOKEN
@@ -117,10 +137,14 @@ def detect_ats(url: str) -> tuple[str, dict]:
         if token:
             return "greenhouse_embed", {"token": token}
 
-    # Greenhouse via gh_jid redirect (e.g. company page with ?gh_jid=...)
+    # Company page with ?gh_jid=JOB_ID — board resolved at fetch time via embed page
     gh_jid = (qs.get("gh_jid") or [None])[0]
     if gh_jid:
         return "greenhouse_embed", {"token": gh_jid}
+
+    # Workday: {tenant}.wd*.myworkdayjobs.com/{careerSite}/job/{location}/{job-id}
+    if "myworkdayjobs.com" in host:
+        return "workday", {}
 
     # Lever: jobs.lever.co/COMPANY/UUID
     if host == "jobs.lever.co" and len(parts) >= 2:
@@ -145,12 +169,52 @@ def _fetch_greenhouse_api(client: httpx.Client, board: str, job_id: str) -> str 
     try:
         r = client.get(api_url)
         r.raise_for_status()
-        # The Greenhouse API HTML-escapes its content field (uses &lt;p&gt; etc.).
-        # Unescape first so the HTML parser sees actual tags, not entity text.
+        # Greenhouse API HTML-escapes its content field (&lt;p&gt; etc.)
         raw = _html.unescape(r.json().get("content") or "")
         return _clean_html(raw) or None
     except Exception as exc:
         logger.debug("Greenhouse API failed %s/%s: %s", board, job_id, exc)
+        return None
+
+
+def _fetch_greenhouse_embed(client: httpx.Client, token: str) -> str | None:
+    """Resolve board from embed page canonical URL, then call Greenhouse API."""
+    try:
+        r = client.get(f"https://boards.greenhouse.io/embed/job_app?token={token}")
+        if r.status_code != 200:
+            return None
+        # Canonical href contains for=BOARD
+        m = re.search(r'<link rel="canonical" href="[^"]*[?&]for=([^&"]+)', r.text)
+        if not m:
+            return None
+        board = m.group(1)
+        return _fetch_greenhouse_api(client, board, token)
+    except Exception as exc:
+        logger.debug("Greenhouse embed failed token=%s: %s", token, exc)
+        return None
+
+
+def _fetch_workday_cxs(client: httpx.Client, url: str) -> str | None:
+    """Hit the Workday CXS JSON API derived from the public job page URL."""
+    import html as _html
+
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    tenant = host.split(".")[0]
+    parts = [p for p in parsed.path.split("/") if p]
+    # Expect: [{careerSite}, "job", {location}, {job-id}]
+    if len(parts) < 3 or parts[1] != "job":
+        return None
+    career_site = parts[0]
+    job_path = "/".join(parts[2:])
+    cxs_url = f"https://{host}/wday/cxs/{tenant}/{career_site}/job/{job_path}"
+    try:
+        r = client.get(cxs_url, headers={"Accept": "application/json"})
+        r.raise_for_status()
+        desc_html = r.json().get("jobPostingInfo", {}).get("jobDescription", "")
+        return _clean_html(_html.unescape(desc_html)) or None
+    except Exception as exc:
+        logger.debug("Workday CXS failed %s: %s", url, exc)
         return None
 
 
@@ -200,7 +264,6 @@ def _fetch_ashby_html(client: httpx.Client, company: str, job_id: str) -> str | 
                     return _clean_html(html) or None
             except _json.JSONDecodeError:
                 continue
-        # Fall back to generic text extraction if JSON-LD is absent
         return _fetch_html_fallback(client, page_url)
     except Exception as exc:
         logger.debug("Ashby HTML failed %s/%s: %s", company, job_id, exc)
@@ -216,7 +279,10 @@ def _fetch_html_fallback(client: httpx.Client, url: str) -> str | None:
         if "html" not in ct:
             return None
         text = _clean_html(r.text)
-        # Heuristic: if we got fewer than 200 chars the page is probably JS-only
+        # Eightfold and similar platforms inline a JSON theme blob in non-script tags
+        if '"themeOptions"' in text:
+            return None
+        # Heuristic: fewer than 200 chars → page is probably JS-only
         return text if len(text) >= 200 else None
     except Exception as exc:
         logger.debug("HTML fallback failed for %s: %s", url, exc)
@@ -230,8 +296,9 @@ def fetch_description(client: httpx.Client, url: str) -> tuple[str | None, str]:
     if ats == "greenhouse" and params:
         text = _fetch_greenhouse_api(client, params["board"], params["job_id"])
     elif ats == "greenhouse_embed" and params:
-        # No board token available; fall back to HTML of the embed/redirect page.
-        text = _fetch_html_fallback(client, url)
+        text = _fetch_greenhouse_embed(client, params["token"])
+    elif ats == "workday":
+        text = _fetch_workday_cxs(client, url)
     elif ats == "lever" and params:
         text = _fetch_lever_api(client, params["company"], params["job_id"])
     elif ats == "ashby" and params:
@@ -244,12 +311,27 @@ def fetch_description(client: httpx.Client, url: str) -> tuple[str | None, str]:
 
 # ── main enrichment loop ──────────────────────────────────────────────────────
 
+# Signatures that indicate a form-shell was captured rather than the real JD
+_JUNK_SIGNATURES = (
+    "Create a Job Alert",  # Greenhouse embed application form
+    '"themeOptions"',  # Eightfold JSON blob (caught by fallback too; belt+suspenders)
+)
+
 
 def run_enrich(db_path: str, limit: int | None = None) -> dict:
     db.migrate_db(db_path)
 
     conn = db.get_conn(db_path)
     try:
+        # Null out known-junk descriptions so the main loop re-fetches them
+        for sig in _JUNK_SIGNATURES:
+            conn.execute(
+                "UPDATE job_applications SET description = NULL, description_source = NULL "
+                "WHERE execution_status = 'QUEUED' AND description LIKE ?",
+                (f"%{sig}%",),
+            )
+        conn.commit()
+
         query = (
             "SELECT job_hash, company_name, application_url "
             "FROM job_applications "
@@ -262,7 +344,7 @@ def run_enrich(db_path: str, limit: int | None = None) -> dict:
         conn.close()
 
     total = len(rows)
-    ats_keys = ("greenhouse", "greenhouse_embed", "lever", "ashby", "other")
+    ats_keys = ("greenhouse", "greenhouse_embed", "workday", "lever", "ashby", "other")
     counts: dict[str, int] = {k: 0 for k in ats_keys}
     failures: dict[str, int] = {k: 0 for k in ats_keys}
     samples: list[tuple[str, str, str]] = []
@@ -280,7 +362,9 @@ def run_enrich(db_path: str, limit: int | None = None) -> dict:
                 desc, ats = fetch_description(client, row["application_url"])
                 ats_key = ats if ats in counts else "other"
 
-                db.update_description(conn, row["job_hash"], desc)
+                db.update_description(
+                    conn, row["job_hash"], desc, source=ats_key if desc else None
+                )
 
                 if desc:
                     counts[ats_key] += 1
