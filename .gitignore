@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────
+#  SECRETS & PII  —  never commit these, private repo or not
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# Real user profile (keep only the example committed)
+config/profile.json
+
+# Google OAuth artifacts (Sheets mirror)
+credentials.json
+token.json
+client_secret*.json
+
+# Resume PDFs — personal documents, keep the folder, ignore contents
+resumes/*
+!resumes/.gitkeep
+
+# Local SQLite database & any scraped data — keep the folder, ignore contents
+data/*
+!data/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# ─────────────────────────────────────────────────────────────
+#  Python
+# ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ─────────────────────────────────────────────────────────────
+#  Editors / OS cruft
+# ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

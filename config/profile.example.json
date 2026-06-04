@@ -1,0 +1,29 @@
+{
+  "identity": {
+    "first_name": "First",
+    "last_name": "Last",
+    "email": "you@example.edu",
+    "phone": "+10000000000",
+    "github": "https://github.com/your-handle",
+    "linkedin": "https://linkedin.com/in/your-handle",
+    "website": "https://your-site.dev"
+  },
+  "demographics": {
+    "citizenship": "United States Citizen",
+    "visa_sponsorship_required": "No",
+    "visa_sponsorship_future": "No",
+    "location_preference": "City, ST"
+  },
+  "education": {
+    "institution": "Your University",
+    "degree": "Bachelor of Science",
+    "major": "Computer Science",
+    "graduation_date": "May 2027",
+    "gpa": "0.00"
+  },
+  "resume_mappings": {
+    "DATA_ENGINEERING": "resumes/data_engineering.pdf",
+    "MLOPS_MLE": "resumes/mlops_infrastructure.pdf",
+    "GENERAL_SWE": "resumes/backend_software.pdf"
+  }
+}
