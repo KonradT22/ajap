@@ -61,17 +61,18 @@ def insert_job(
     company_name: str,
     job_title: str,
     application_url: str,
+    status: str = "QUEUED",
 ) -> bool:
-    """Insert a new QUEUED row. Returns True if inserted, False if already exists."""
+    """Insert a row with the given status. Returns True if inserted, False if already exists."""
     now = _now()
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO job_applications
             (job_hash, company_name, job_title, application_url,
              execution_status, timestamp_discovered, timestamp_updated)
-        VALUES (?, ?, ?, ?, 'QUEUED', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (job_hash, company_name, job_title, application_url, now, now),
+        (job_hash, company_name, job_title, application_url, status, now, now),
     )
     return cursor.rowcount == 1
 

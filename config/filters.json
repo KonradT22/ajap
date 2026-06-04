@@ -1,0 +1,20 @@
+{
+  "whitelist": [
+    "New Grad",
+    "Class of 2027",
+    "University Graduate",
+    "Co-op",
+    "Early Career",
+    "Fall 2026",
+    "Spring 2027"
+  ],
+  "blacklist": [
+    "Summer 2027",
+    "Class of 2028",
+    "3+ years",
+    "5+ years",
+    "Senior",
+    "Principal",
+    "Lead"
+  ]
+}
