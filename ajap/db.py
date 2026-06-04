@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS job_applications (
     company_name         TEXT NOT NULL,
     job_title            TEXT NOT NULL,
     application_url      TEXT NOT NULL UNIQUE,
+    source_id            TEXT,
+    is_active            INTEGER NOT NULL DEFAULT 1,
+    date_posted          TEXT,
     career_track         TEXT
         CHECK(career_track IN ('DATA_ENGINEERING','MLOPS_MLE','GENERAL_SWE','IGNORE')),
     execution_status     TEXT NOT NULL
@@ -61,20 +64,60 @@ def insert_job(
     company_name: str,
     job_title: str,
     application_url: str,
+    source_id: str | None = None,
+    is_active: int = 1,
+    date_posted: str | None = None,
     status: str = "QUEUED",
 ) -> bool:
-    """Insert a row with the given status. Returns True if inserted, False if already exists."""
+    """Insert a new row. Returns True if inserted, False if hash or URL already exists."""
     now = _now()
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO job_applications
             (job_hash, company_name, job_title, application_url,
+             source_id, is_active, date_posted,
              execution_status, timestamp_discovered, timestamp_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (job_hash, company_name, job_title, application_url, status, now, now),
+        (
+            job_hash,
+            company_name,
+            job_title,
+            application_url,
+            source_id,
+            is_active,
+            date_posted,
+            status,
+            now,
+            now,
+        ),
     )
     return cursor.rowcount == 1
+
+
+def reconcile_active(
+    conn: sqlite3.Connection,
+    job_hash: str,
+    is_active: int,
+) -> bool:
+    """
+    Update is_active on a known row. If it went inactive while QUEUED,
+    demote to EVAL_REJECTED. Returns True if the row was demoted.
+    """
+    row = conn.execute(
+        "SELECT is_active, execution_status FROM job_applications WHERE job_hash = ?",
+        (job_hash,),
+    ).fetchone()
+    if row is None:
+        return False
+    conn.execute(
+        "UPDATE job_applications SET is_active = ? WHERE job_hash = ?",
+        (is_active, job_hash),
+    )
+    if not is_active and row["execution_status"] == "QUEUED":
+        update_status(conn, job_hash, "EVAL_REJECTED")
+        return True
+    return False
 
 
 def exists(conn: sqlite3.Connection, job_hash: str) -> bool:
