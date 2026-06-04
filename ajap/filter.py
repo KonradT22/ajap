@@ -79,6 +79,7 @@ def evaluate_with_reason(
             return "EVAL_REJECTED", "blacklist"
 
     # Gate 4: whitelist — must match at least one term.
+    # Empty list = gate disabled; all titles pass.
     whitelist = _f.get("whitelist", [])
     if whitelist and not any(term.lower() in title for term in whitelist):
         return "EVAL_REJECTED", "no-whitelist"

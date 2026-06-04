@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Exposed so tests can apply the schema to an in-memory connection directly.
 SCHEMA_SQL = """
@@ -14,6 +17,7 @@ CREATE TABLE IF NOT EXISTS job_applications (
     source_id            TEXT,
     is_active            INTEGER NOT NULL DEFAULT 1,
     date_posted          TEXT,
+    description          TEXT,
     career_track         TEXT
         CHECK(career_track IN ('DATA_ENGINEERING','MLOPS_MLE','GENERAL_SWE','IGNORE')),
     execution_status     TEXT NOT NULL
@@ -55,6 +59,20 @@ def get_conn(db_path: str) -> sqlite3.Connection:
 def init_db(db_path: str) -> None:
     with get_conn(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+
+
+def migrate_db(db_path: str) -> None:
+    """Add any columns present in SCHEMA_SQL but missing from the live table.
+    Safe to call on an already-current DB — no-ops if nothing is missing.
+    """
+    init_db(db_path)
+    with get_conn(db_path) as conn:
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(job_applications)")
+        }
+        if "description" not in existing:
+            conn.execute("ALTER TABLE job_applications ADD COLUMN description TEXT")
+            logger.info("Schema migration: added 'description' column")
 
 
 def insert_job(
@@ -138,4 +156,13 @@ def update_status(conn: sqlite3.Connection, job_hash: str, status: str) -> None:
     conn.execute(
         "UPDATE job_applications SET execution_status = ? WHERE job_hash = ?",
         (status, job_hash),
+    )
+
+
+def update_description(
+    conn: sqlite3.Connection, job_hash: str, description: str | None
+) -> None:
+    conn.execute(
+        "UPDATE job_applications SET description = ? WHERE job_hash = ?",
+        (description, job_hash),
     )

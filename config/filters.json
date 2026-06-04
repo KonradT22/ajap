@@ -1,14 +1,6 @@
 {
-  "recency_days": 45,
-  "whitelist": [
-    "New Grad",
-    "Class of 2027",
-    "University Graduate",
-    "Co-op",
-    "Early Career",
-    "Fall 2026",
-    "Spring 2027"
-  ],
+  "recency_days": 90,
+  "whitelist": [],
   "blacklist": [
     "Summer 2027",
     "Class of 2028",
