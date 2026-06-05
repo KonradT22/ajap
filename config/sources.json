@@ -1,0 +1,12 @@
+[
+  {
+    "name": "simplify-newgrad",
+    "type": "simplify_feed",
+    "url": "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json"
+  },
+  {
+    "name": "simplify-internships",
+    "type": "simplify_feed",
+    "url": "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json"
+  }
+]

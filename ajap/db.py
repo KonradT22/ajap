@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS job_applications (
     job_title            TEXT NOT NULL,
     application_url      TEXT NOT NULL UNIQUE,
     source_id            TEXT,
+    source_name          TEXT,
     is_active            INTEGER NOT NULL DEFAULT 1,
     date_posted          TEXT,
     locations_raw        TEXT,
@@ -95,6 +96,9 @@ def migrate_db(db_path: str) -> None:
                 "ALTER TABLE job_applications ADD COLUMN locations_raw TEXT"
             )
             logger.info("Schema migration: added 'locations_raw' column")
+        if "source_name" not in existing:
+            conn.execute("ALTER TABLE job_applications ADD COLUMN source_name TEXT")
+            logger.info("Schema migration: added 'source_name' column")
 
 
 def insert_job(
@@ -105,6 +109,7 @@ def insert_job(
     job_title: str,
     application_url: str,
     source_id: str | None = None,
+    source_name: str | None = None,
     is_active: int = 1,
     date_posted: str | None = None,
     locations_raw: str | None = None,
@@ -116,9 +121,9 @@ def insert_job(
         """
         INSERT OR IGNORE INTO job_applications
             (job_hash, company_name, job_title, application_url,
-             source_id, is_active, date_posted, locations_raw,
+             source_id, source_name, is_active, date_posted, locations_raw,
              execution_status, timestamp_discovered, timestamp_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job_hash,
@@ -126,6 +131,7 @@ def insert_job(
             job_title,
             application_url,
             source_id,
+            source_name,
             is_active,
             date_posted,
             locations_raw,
