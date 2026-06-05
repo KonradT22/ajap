@@ -17,9 +17,13 @@ CREATE TABLE IF NOT EXISTS job_applications (
     source_id            TEXT,
     is_active            INTEGER NOT NULL DEFAULT 1,
     date_posted          TEXT,
+    locations_raw        TEXT,
     description          TEXT,
+    description_source   TEXT,
     career_track         TEXT
         CHECK(career_track IN ('DATA_ENGINEERING','MLOPS_MLE','GENERAL_SWE','IGNORE')),
+    resume_path          TEXT,
+    classify_reason      TEXT,
     execution_status     TEXT NOT NULL
         CHECK(execution_status IN (
             'QUEUED','PENDING_EXECUTION','EVAL_REJECTED',
@@ -78,6 +82,19 @@ def migrate_db(db_path: str) -> None:
                 "ALTER TABLE job_applications ADD COLUMN description_source TEXT"
             )
             logger.info("Schema migration: added 'description_source' column")
+        if "resume_path" not in existing:
+            conn.execute("ALTER TABLE job_applications ADD COLUMN resume_path TEXT")
+            logger.info("Schema migration: added 'resume_path' column")
+        if "classify_reason" not in existing:
+            conn.execute(
+                "ALTER TABLE job_applications ADD COLUMN classify_reason TEXT"
+            )
+            logger.info("Schema migration: added 'classify_reason' column")
+        if "locations_raw" not in existing:
+            conn.execute(
+                "ALTER TABLE job_applications ADD COLUMN locations_raw TEXT"
+            )
+            logger.info("Schema migration: added 'locations_raw' column")
 
 
 def insert_job(
@@ -90,6 +107,7 @@ def insert_job(
     source_id: str | None = None,
     is_active: int = 1,
     date_posted: str | None = None,
+    locations_raw: str | None = None,
     status: str = "QUEUED",
 ) -> bool:
     """Insert a new row. Returns True if inserted, False if hash or URL already exists."""
@@ -98,9 +116,9 @@ def insert_job(
         """
         INSERT OR IGNORE INTO job_applications
             (job_hash, company_name, job_title, application_url,
-             source_id, is_active, date_posted,
+             source_id, is_active, date_posted, locations_raw,
              execution_status, timestamp_discovered, timestamp_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job_hash,
@@ -110,6 +128,7 @@ def insert_job(
             source_id,
             is_active,
             date_posted,
+            locations_raw,
             status,
             now,
             now,
@@ -161,6 +180,22 @@ def update_status(conn: sqlite3.Connection, job_hash: str, status: str) -> None:
     conn.execute(
         "UPDATE job_applications SET execution_status = ? WHERE job_hash = ?",
         (status, job_hash),
+    )
+
+
+def update_classification(
+    conn: sqlite3.Connection,
+    job_hash: str,
+    career_track: str,
+    resume_path: str | None,
+    status: str,
+    reason: str | None = None,
+) -> None:
+    conn.execute(
+        "UPDATE job_applications "
+        "SET career_track = ?, resume_path = ?, execution_status = ?, classify_reason = ? "
+        "WHERE job_hash = ?",
+        (career_track, resume_path, status, reason, job_hash),
     )
 
 

@@ -59,7 +59,76 @@ def test_missing_active_field_treated_as_active():
     assert evaluate(job, filters=F_NO_RECENCY) == "QUEUED"
 
 
-# ── gate 2: recency ───────────────────────────────────────────────────────────
+# ── gate 2: US-only ──────────────────────────────────────────────────────────
+
+F_GEO = {"recency_days": 0, "whitelist": [], "blacklist": []}
+
+
+def test_all_non_us_rejected():
+    job = {"title": "SWE", "active": True, "locations": ["London, UK", "Paris, France"]}
+    status, reason = evaluate_with_reason(job, filters=F_GEO)
+    assert status == "EVAL_REJECTED"
+    assert reason == "non-us"
+
+
+def test_mixed_locations_pass():
+    """Any US-plausible location in the list → keep."""
+    job = {"title": "SWE", "active": True, "locations": ["New York, NY", "London, UK"]}
+    assert evaluate(job, filters=F_GEO) == "QUEUED"
+
+
+def test_empty_locations_pass():
+    """Empty list → high-recall keep."""
+    job = {"title": "SWE", "active": True, "locations": []}
+    assert evaluate(job, filters=F_GEO) == "QUEUED"
+
+
+def test_no_locations_field_pass():
+    job = {"title": "SWE", "active": True}
+    assert evaluate(job, filters=F_GEO) == "QUEUED"
+
+
+def test_remote_passes():
+    job = {"title": "SWE", "active": True, "locations": ["Remote"]}
+    assert evaluate(job, filters=F_GEO) == "QUEUED"
+
+
+def test_canada_only_rejected():
+    job = {"title": "SWE", "active": True, "locations": ["Toronto, Canada"]}
+    status, reason = evaluate_with_reason(job, filters=F_GEO)
+    assert status == "EVAL_REJECTED"
+    assert reason == "non-us"
+
+
+def test_us_city_passes():
+    job = {"title": "SWE", "active": True, "locations": ["San Francisco, CA"]}
+    assert evaluate(job, filters=F_GEO) == "QUEUED"
+
+
+def test_db_row_locations_raw_non_us():
+    """DB rows use locations_raw (JSON string) instead of locations list."""
+    import json
+    job = {
+        "job_title": "SWE",
+        "is_active": 1,
+        "locations_raw": json.dumps(["Berlin, Germany", "Munich, Germany"]),
+    }
+    status, reason = evaluate_with_reason(job, filters=F_GEO)
+    assert status == "EVAL_REJECTED"
+    assert reason == "non-us"
+
+
+def test_db_row_locations_raw_mixed_passes():
+    import json
+    job = {
+        "job_title": "SWE",
+        "is_active": 1,
+        "locations_raw": json.dumps(["Austin, TX", "Berlin, Germany"]),
+    }
+    assert evaluate(job, filters=F_GEO) == "QUEUED"
+
+
+# ── gate 3: recency ───────────────────────────────────────────────────────────
 
 
 def test_recent_listing_passes_recency_iso():
@@ -97,7 +166,7 @@ def test_recency_days_zero_disables_gate():
     assert evaluate(job, filters=F_NO_RECENCY) == "QUEUED"
 
 
-# ── gate 3: blacklist ─────────────────────────────────────────────────────────
+# ── gate 4: blacklist ─────────────────────────────────────────────────────────
 
 
 def test_blacklist_wins_over_whitelist():
@@ -122,7 +191,7 @@ def test_lead_rejected():
     assert evaluate(job, filters=F) == "EVAL_REJECTED"
 
 
-# ── gate 4: whitelist ─────────────────────────────────────────────────────────
+# ── gate 5: whitelist ─────────────────────────────────────────────────────────
 
 
 def test_no_whitelist_term_rejected():

@@ -33,7 +33,7 @@ Four-stage pipeline, all state in a single SQLite file (`data/ajap.db`):
 
 1. **Ingest** (`ajap/ingest.py`) — polls SimplifyJobs repo and public Greenhouse/Lever/Ashby boards; deduplicates via `SHA-256(company+title)`; writes raw rows.
 2. **Pre-filter** (`ajap/filter.py`) — regex whitelist/blacklist on title; marks non-matches `EVAL_REJECTED`.
-3. **Classify** (`ajap/classify.py`) — routes survivors via Gemini 2.0 Flash into `DATA_ENGINEERING` / `MLOPS_MLE` / `GENERAL_SWE` / `IGNORE`; attaches matching résumé path from `profile.json`.
+3. **Classify** (`ajap/classify.py`) — routes survivors via Gemini 2.5 Flash into `DATA_ENGINEERING` / `MLOPS_MLE` / `GENERAL_SWE` / `IGNORE`; attaches matching résumé path from `profile.json`.
 4. **Notify** (`ajap/notify.py`) — Discord webhook and/or email alerts on strong matches.
 
 `main.py` is the entrypoint and APScheduler-based polling loop. `ajap/config.py` loads `.env` and `config/profile.json`. `ajap/db.py` owns the SQLite schema and all query helpers.
@@ -46,7 +46,7 @@ Four-stage pipeline, all state in a single SQLite file (`data/ajap.db`):
 
 ## LLM usage
 
-Classification calls go to Gemini (`google-genai` SDK). Only public job-listing text is sent — no personal data. Model is configurable via `GEMINI_MODEL` in `.env` (default `gemini-2.0-flash`).
+Classification calls go to Gemini (`google-genai` SDK). Only public job-listing text is sent — no personal data. Model is configurable via `GEMINI_MODEL` in `.env` (default `gemini-2.5-flash`; 2.0-flash was retired March 2026).
 
 ## Roadmap phase status
 

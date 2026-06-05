@@ -9,6 +9,73 @@ logger = logging.getLogger(__name__)
 
 FILTERS_PATH = Path("config/filters.json")
 
+# Substrings that, if found in a lowercased location string, indicate non-US.
+# Checked in order; first match wins. Deliberately conservative (high-recall):
+# ambiguous strings like "London" (no country) are left to pass.
+_NON_US_MARKERS: tuple[str, ...] = (
+    "canada",
+    " uk",  # "Glasgow, UK" → ", uk" contains " uk"
+    "united kingdom",
+    "england",
+    "scotland",
+    "wales",
+    "germany",
+    "france",
+    "india",
+    "singapore",
+    "australia",
+    "china",
+    "ireland",
+    "japan",
+    "netherlands",
+    "sweden",
+    "poland",
+    "spain",
+    "portugal",
+    "norway",
+    "denmark",
+    "finland",
+    "switzerland",
+    "austria",
+    "belgium",
+    "brazil",
+    "mexico",
+    "israel",
+    "taiwan",
+    "south korea",
+    "new zealand",
+)
+
+
+def _is_non_us(loc: str) -> bool:
+    """True if a single location string is clearly not US."""
+    l = loc.lower().strip()
+    return any(marker in l for marker in _NON_US_MARKERS)
+
+
+def _us_gate(job: dict) -> bool:
+    """Return True (PASS) if the job is US-accessible.
+
+    Accepts feed dict ('locations': list[str]) or DB row ('locations_raw': JSON str).
+    Unspecified or empty locations → pass (high-recall).
+    Only rejects when ALL listed locations are clearly non-US.
+    """
+    if "locations" in job:
+        locs: list[str] = job["locations"] or []
+    elif "locations_raw" in job and job["locations_raw"]:
+        try:
+            locs = json.loads(job["locations_raw"])
+        except (json.JSONDecodeError, TypeError):
+            locs = []
+    else:
+        return True  # unspecified → keep
+
+    if not locs:
+        return True
+
+    # Keep if ANY location is US-plausible (not in non-US list)
+    return any(not _is_non_us(loc) for loc in locs)
+
 
 def load_filters() -> dict:
     if not FILTERS_PATH.exists():
@@ -34,17 +101,18 @@ def evaluate_with_reason(
 
     Gates applied in order (cheapest first):
       1. ACTIVE    — listing marked inactive → 'inactive'
-      2. RECENCY   — date_posted older than recency_days → 'too-old'
-      3. BLACKLIST — any blacklist term in title → 'blacklist'
-      4. WHITELIST — no whitelist term in title → 'no-whitelist'
+      2. US-ONLY   — all locations non-US → 'non-us'
+      3. RECENCY   — date_posted older than recency_days → 'too-old'
+      4. BLACKLIST — any blacklist term in title → 'blacklist'
+      5. WHITELIST — no whitelist term in title → 'no-whitelist'
 
-    Accepts both feed dicts (active: bool, date_posted: int unix ts) and
-    DB row dicts (is_active: int 0/1, date_posted: ISO str).
+    Accepts both feed dicts (active: bool, date_posted: int unix ts,
+    locations: list[str]) and DB row dicts (is_active: int 0/1,
+    date_posted: ISO str, locations_raw: JSON str).
     """
     _f = filters if filters is not None else _default_filters
 
     # Gate 1: active status.
-    # Prefer 'is_active' (DB int), fall back to 'active' (feed bool).
     if "is_active" in job:
         if not job["is_active"]:
             return "EVAL_REJECTED", "inactive"
@@ -52,7 +120,11 @@ def evaluate_with_reason(
         if not job["active"]:
             return "EVAL_REJECTED", "inactive"
 
-    # Gate 2: recency.
+    # Gate 2: US-only location.
+    if not _us_gate(job):
+        return "EVAL_REJECTED", "non-us"
+
+    # Gate 3: recency.
     recency_days = int(_f.get("recency_days", 45))
     if recency_days > 0:
         dp_raw = job.get("date_posted")
@@ -73,12 +145,12 @@ def evaluate_with_reason(
     # Resolve title from either feed dict ('title') or DB row ('job_title').
     title = (job.get("title") or job.get("job_title") or "").lower()
 
-    # Gate 3: blacklist takes priority over whitelist.
+    # Gate 4: blacklist takes priority over whitelist.
     for term in _f.get("blacklist", []):
         if term.lower() in title:
             return "EVAL_REJECTED", "blacklist"
 
-    # Gate 4: whitelist — must match at least one term.
+    # Gate 5: whitelist — must match at least one term.
     # Empty list = gate disabled; all titles pass.
     whitelist = _f.get("whitelist", [])
     if whitelist and not any(term.lower() in title for term in whitelist):

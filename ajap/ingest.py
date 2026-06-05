@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -71,6 +72,7 @@ def run_ingest(db_path: str) -> dict[str, int]:
             date_posted = (
                 datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else None
             )
+            locations_raw = json.dumps(listing.get("locations") or [])
 
             h = _job_hash(source_id, company, title, url)
 
@@ -93,6 +95,7 @@ def run_ingest(db_path: str) -> dict[str, int]:
                     source_id=source_id,
                     is_active=is_active,
                     date_posted=date_posted,
+                    locations_raw=locations_raw,
                     status=status,
                 )
                 if inserted:
