@@ -2,11 +2,14 @@
   {
     "name": "simplify-newgrad",
     "type": "simplify_feed",
-    "url": "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json"
+    "url": "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json",
+    "role_type": "new_grad"
   },
   {
     "name": "simplify-internships",
     "type": "simplify_feed",
-    "url": "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json"
+    "url": "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json",
+    "role_type": "internship",
+    "allowed_terms": ["Fall 2026", "Winter 2026", "Spring 2027", "Winter 2027"]
   }
 ]

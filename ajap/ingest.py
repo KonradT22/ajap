@@ -50,11 +50,18 @@ _FETCHERS = {
 # ── Normalizer ─────────────────────────────────────────────────────────────────
 
 
-def _normalize_simplify(listing: dict, source_name: str) -> dict | None:
+def _normalize_simplify(listing: dict, source: dict) -> dict | None:
     """Convert a raw SimplifyJobs listing dict to our internal row shape.
 
-    Returns None if required fields are missing.
+    Returns None if required fields are missing or if the listing's terms
+    don't intersect the source's allowed_terms filter.
     """
+    allowed_terms: list[str] | None = source.get("allowed_terms")
+    if allowed_terms is not None:
+        listing_terms: list[str] = listing.get("terms") or []
+        if not any(t in allowed_terms for t in listing_terms):
+            return None
+
     source_id = (listing.get("id") or "").strip() or None
     company = (listing.get("company_name") or "").strip()
     title = (listing.get("title") or "").strip()
@@ -72,7 +79,8 @@ def _normalize_simplify(listing: dict, source_name: str) -> dict | None:
 
     return {
         "source_id": source_id,
-        "source_name": source_name,
+        "source_name": source["name"],
+        "role_type": source.get("role_type", "new_grad"),
         "company_name": company,
         "job_title": title,
         "application_url": url,
@@ -101,7 +109,7 @@ def _job_hash(source_id: str | None, company_name: str, job_title: str, url: str
 
 
 def run_ingest(db_path: str) -> dict[str, int]:
-    db.init_db(db_path)
+    db.migrate_db(db_path)
 
     sources = load_sources()
 
@@ -138,7 +146,7 @@ def run_ingest(db_path: str) -> dict[str, int]:
         conn = db.get_conn(db_path)
         try:
             for listing in raw_listings:
-                row = normalizer(listing, name)
+                row = normalizer(listing, source)
                 if row is None:
                     continue
 
@@ -160,6 +168,7 @@ def run_ingest(db_path: str) -> dict[str, int]:
                         application_url=row["application_url"],
                         source_id=row["source_id"],
                         source_name=row["source_name"],
+                        role_type=row["role_type"],
                         is_active=row["is_active"],
                         date_posted=row["date_posted"],
                         locations_raw=row["locations_raw"],

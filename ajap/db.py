@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS job_applications (
     application_url      TEXT NOT NULL UNIQUE,
     source_id            TEXT,
     source_name          TEXT,
+    role_type            TEXT NOT NULL DEFAULT 'new_grad'
+        CHECK(role_type IN ('new_grad','internship')),
     is_active            INTEGER NOT NULL DEFAULT 1,
     date_posted          TEXT,
     locations_raw        TEXT,
@@ -99,6 +101,13 @@ def migrate_db(db_path: str) -> None:
         if "source_name" not in existing:
             conn.execute("ALTER TABLE job_applications ADD COLUMN source_name TEXT")
             logger.info("Schema migration: added 'source_name' column")
+        if "role_type" not in existing:
+            conn.execute(
+                "ALTER TABLE job_applications ADD COLUMN role_type TEXT NOT NULL DEFAULT 'new_grad'"
+            )
+            # Backfill: all pre-existing rows came from the new-grad feed.
+            conn.execute("UPDATE job_applications SET role_type = 'new_grad'")
+            logger.info("Schema migration: added 'role_type' column, backfilled as 'new_grad'")
 
 
 def insert_job(
@@ -110,6 +119,7 @@ def insert_job(
     application_url: str,
     source_id: str | None = None,
     source_name: str | None = None,
+    role_type: str = "new_grad",
     is_active: int = 1,
     date_posted: str | None = None,
     locations_raw: str | None = None,
@@ -121,9 +131,9 @@ def insert_job(
         """
         INSERT OR IGNORE INTO job_applications
             (job_hash, company_name, job_title, application_url,
-             source_id, source_name, is_active, date_posted, locations_raw,
+             source_id, source_name, role_type, is_active, date_posted, locations_raw,
              execution_status, timestamp_discovered, timestamp_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job_hash,
@@ -132,6 +142,7 @@ def insert_job(
             application_url,
             source_id,
             source_name,
+            role_type,
             is_active,
             date_posted,
             locations_raw,
