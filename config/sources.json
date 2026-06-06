@@ -11,5 +11,17 @@
     "url": "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/.github/scripts/listings.json",
     "role_type": "internship",
     "allowed_terms": ["Fall 2026", "Winter 2026", "Spring 2027", "Winter 2027"]
+  },
+  {
+    "name": "greenhouse-boards",
+    "type": "greenhouse_boards",
+    "boards_file": "config/boards_greenhouse.json",
+    "role_type": "new_grad"
+  },
+  {
+    "name": "lever-boards",
+    "type": "lever_boards",
+    "boards_file": "config/boards_lever.json",
+    "role_type": "new_grad"
   }
 ]

@@ -223,6 +223,31 @@ def _run_enrich(db_path: str, limit: int | None) -> None:
             print()
 
 
+def _run_dry_run_boards(db_path: str) -> None:
+    logger.info("Starting board dry-run → %s", db_path)
+    report = ingest.run_dry_run_boards(db_path)
+
+    print("\nBoard dry-run complete (nothing written to DB):")
+    grand_raw = grand_pass = grand_new = 0
+    for name, s in report.items():
+        print(f"\n  [{name}]")
+        print(f"    Raw roles fetched       : {s['raw']:>6}")
+        print(f"    Dropped: location       : {s['dropped_location']:>6}")
+        print(f"    Dropped: dept/category  : {s['dropped_dept']:>6}")
+        print(f"    Dropped: seniority      : {s['dropped_seniority']:>6}")
+        passed = s['passed_filter']
+        print(f"    Passed pre-filter       : {passed:>6}  ({100*passed/max(s['raw'],1):.0f}% of raw)")
+        print(f"    Net-new vs DB           : {s['net_new']:>6}  ({100*s['net_new']/max(passed,1):.0f}% of passed)")
+        grand_raw += s['raw']
+        grand_pass += passed
+        grand_new += s['net_new']
+
+    print(f"\n  TOTAL across all board sources:")
+    print(f"    Raw                     : {grand_raw:>6}")
+    print(f"    Passed pre-filter       : {grand_pass:>6}  ({100*grand_pass/max(grand_raw,1):.0f}% of raw)")
+    print(f"    Net-new vs DB           : {grand_new:>6}  ({100*grand_new/max(grand_pass,1):.0f}% of passed)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AJAP job-search pipeline")
     parser.add_argument(
@@ -244,6 +269,11 @@ def main() -> None:
         help="Classify QUEUED rows via Gemini; routes to track and sets resume path",
     )
     parser.add_argument(
+        "--dry-run-boards",
+        action="store_true",
+        help="Fetch Greenhouse + Lever boards, apply pre-filter, report net-new (no DB writes)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -261,6 +291,8 @@ def main() -> None:
         _run_enrich(db_path, args.limit)
     elif args.classify:
         _run_classify(db_path, args.limit)
+    elif args.dry_run_boards:
+        _run_dry_run_boards(db_path)
     else:
         _run_ingest(db_path)
 
