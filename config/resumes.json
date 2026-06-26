@@ -1,0 +1,32 @@
+{
+  "lanes": {
+    "swe": {
+      "descriptor": "Generic full-stack/product SWE (React, Node, Flask, Rails). Default when no specialized angle applies.",
+      "contrast": "NOT for infrastructure-ops, model serving, trading systems, or data pipelines."
+    },
+    "quant": {
+      "descriptor": "Trading systems, backtesting, market-data pipelines, risk controls. FMA internship + derivatives research background.",
+      "contrast": "Use for quant-dev, trading-infra, fintech. NOT for general SWE with no finance angle."
+    },
+    "mle": {
+      "descriptor": "BUILD the model: PyTorch, neural nets, embeddings, research/modeling-heavy ML roles.",
+      "contrast": "NOT for roles focused on serving/monitoring models (use mlops) or general SWE."
+    },
+    "mlops": {
+      "descriptor": "SERVE/MONITOR the model: inference pipelines, model monitoring & fallback, LLM APIs, scheduling/alerting.",
+      "contrast": "NOT for model research (use mle) or general cloud infra."
+    },
+    "data": {
+      "descriptor": "Data engineering: SQL, ADF, ETL/ELT, stored procedures, data warehousing, analytics infrastructure.",
+      "contrast": "NOT for software delivery or platform reliability."
+    },
+    "devops": {
+      "descriptor": "SHIP software: Docker/Compose, systemd, cron, Nginx, CI/CD pipelines, Linux. SRE/platform/reliability.",
+      "contrast": "NOT for cloud admin, networking, or IAM-heavy roles (use cloud-infra)."
+    },
+    "cloud-infra": {
+      "descriptor": "RUN the systems/network: Azure, ESXi, Entra/IAM, Meraki/networking, DNS, firewalls, OT/industrial.",
+      "contrast": "NOT for software delivery or SRE roles (use devops)."
+    }
+  }
+}

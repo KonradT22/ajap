@@ -2,14 +2,15 @@
 httpx>=0.27            # async-capable HTTP client for polling feeds & ATS boards
 python-dotenv>=1.0     # load secrets from .env
 APScheduler>=3.10      # cron-style polling loop with jitter
+flask>=3.0             # local dashboard web server
 # sqlite3 is in the Python standard library — no dependency needed
 
 # ── LLM classification (phase 3) ───────────────────────────────
 google-genai>=0.3      # Google Gen AI SDK (Gemini 2.0 Flash). Pin exact version when we wire classify.py
 
 # ── Optional: Google Sheets mirror (phase 4) ───────────────────
-# gspread>=6.0
-# google-auth>=2.0
+gspread>=6.0
+google-auth>=2.0
 
 # ── Assisted form fill (phase 6 — added later, no stealth) ─────
 # playwright>=1.44

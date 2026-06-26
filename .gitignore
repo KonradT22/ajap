@@ -49,6 +49,9 @@ ENV/
 .coverage
 htmlcov/
 
+# Claude Code project memory (local only)
+.claude/
+
 # ─────────────────────────────────────────────────────────────
 #  Editors / OS cruft
 # ─────────────────────────────────────────────────────────────

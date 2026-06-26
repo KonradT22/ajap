@@ -35,7 +35,17 @@ CREATE TABLE IF NOT EXISTS job_applications (
         )),
     retry_count          INTEGER NOT NULL DEFAULT 0,
     timestamp_discovered TEXT NOT NULL,
-    timestamp_updated    TEXT NOT NULL
+    timestamp_updated    TEXT NOT NULL,
+    application_status   TEXT NOT NULL DEFAULT 'NEW'
+        CHECK(application_status IN (
+            'NEW','INTERESTED','APPLIED','SKIPPED',
+            'INTERVIEWING','REJECTED','OFFER'
+        )),
+    alerted_at           TEXT,
+    resume_pick          TEXT,
+    resume_why           TEXT,
+    fit_confidence       TEXT CHECK(fit_confidence IN ('STRONG','MEDIUM','WEAK')),
+    fit_reason           TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_status_hash
@@ -108,6 +118,26 @@ def migrate_db(db_path: str) -> None:
             # Backfill: all pre-existing rows came from the new-grad feed.
             conn.execute("UPDATE job_applications SET role_type = 'new_grad'")
             logger.info("Schema migration: added 'role_type' column, backfilled as 'new_grad'")
+        if "application_status" not in existing:
+            conn.execute(
+                "ALTER TABLE job_applications ADD COLUMN application_status TEXT NOT NULL DEFAULT 'NEW'"
+            )
+            logger.info("Schema migration: added 'application_status' column")
+        if "alerted_at" not in existing:
+            conn.execute("ALTER TABLE job_applications ADD COLUMN alerted_at TEXT")
+            logger.info("Schema migration: added 'alerted_at' column")
+        if "resume_pick" not in existing:
+            conn.execute("ALTER TABLE job_applications ADD COLUMN resume_pick TEXT")
+            logger.info("Schema migration: added 'resume_pick' column")
+        if "resume_why" not in existing:
+            conn.execute("ALTER TABLE job_applications ADD COLUMN resume_why TEXT")
+            logger.info("Schema migration: added 'resume_why' column")
+        if "fit_confidence" not in existing:
+            conn.execute("ALTER TABLE job_applications ADD COLUMN fit_confidence TEXT")
+            logger.info("Schema migration: added 'fit_confidence' column")
+        if "fit_reason" not in existing:
+            conn.execute("ALTER TABLE job_applications ADD COLUMN fit_reason TEXT")
+            logger.info("Schema migration: added 'fit_reason' column")
 
 
 def insert_job(
@@ -123,6 +153,8 @@ def insert_job(
     is_active: int = 1,
     date_posted: str | None = None,
     locations_raw: str | None = None,
+    description: str | None = None,
+    description_source: str | None = None,
     status: str = "QUEUED",
 ) -> bool:
     """Insert a new row. Returns True if inserted, False if hash or URL already exists."""
@@ -132,8 +164,9 @@ def insert_job(
         INSERT OR IGNORE INTO job_applications
             (job_hash, company_name, job_title, application_url,
              source_id, source_name, role_type, is_active, date_posted, locations_raw,
+             description, description_source,
              execution_status, timestamp_discovered, timestamp_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job_hash,
@@ -146,6 +179,8 @@ def insert_job(
             is_active,
             date_posted,
             locations_raw,
+            description,
+            description_source,
             status,
             now,
             now,
@@ -213,6 +248,45 @@ def update_classification(
         "SET career_track = ?, resume_path = ?, execution_status = ?, classify_reason = ? "
         "WHERE job_hash = ?",
         (career_track, resume_path, status, reason, job_hash),
+    )
+
+
+def update_application_status(
+    conn: sqlite3.Connection,
+    job_hash: str,
+    status: str,
+) -> None:
+    conn.execute(
+        "UPDATE job_applications SET application_status = ? WHERE job_hash = ?",
+        (status, job_hash),
+    )
+
+
+def update_match(
+    conn: sqlite3.Connection,
+    job_hash: str,
+    resume_pick: str,
+    resume_why: str | None,
+    fit_confidence: str,
+    fit_reason: str | None,
+) -> None:
+    conn.execute(
+        "UPDATE job_applications "
+        "SET resume_pick = ?, resume_why = ?, fit_confidence = ?, fit_reason = ? "
+        "WHERE job_hash = ?",
+        (resume_pick, resume_why, fit_confidence, fit_reason, job_hash),
+    )
+
+
+def mark_alerted(conn: sqlite3.Connection, job_hashes: list[str]) -> None:
+    """Stamp alerted_at = now on the given hashes so they are never re-alerted."""
+    if not job_hashes:
+        return
+    now = _now()
+    placeholders = ",".join("?" * len(job_hashes))
+    conn.execute(
+        f"UPDATE job_applications SET alerted_at = ? WHERE job_hash IN ({placeholders})",
+        [now, *job_hashes],
     )
 
 

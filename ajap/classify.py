@@ -16,10 +16,12 @@ MAX_DESC_CHARS = 6_000
 _IN_COST_PER_TOKEN = 0.15 / 1_000_000
 _OUT_COST_PER_TOKEN = 0.60 / 1_000_000
 
-# Rate-limit: free tier ≈ 10 RPM → enforce ≥ 6.1 s between calls.
-_MIN_INTERVAL_SEC = 6.1
+# Rate-limit: driven by GEMINI_RPM env var (default 150 for paid Tier-1).
+# Free tier ≈ 10 RPM → set GEMINI_RPM=10 in .env to throttle back down.
+_MIN_INTERVAL_SEC: float = 60.0 / max(config.GEMINI_RPM, 1)
 _BACKOFF_BASE_SEC = 10.0
 _BACKOFF_CAP_SEC = 120.0
+_MAX_RETRIES = 5  # give up after this many 429s rather than looping forever
 _last_call_ts: list[float] = [0.0]  # mutable singleton; list avoids nonlocal
 
 # ── Prompt templates ──────────────────────────────────────────────────────────
@@ -120,14 +122,14 @@ def _parse_track(text: str) -> tuple[str | None, str | None]:
 
 
 def _gemini_generate(client, model: str, contents, cfg):
-    """Call Gemini with inter-call throttle and exponential back-off on 429."""
+    """Call Gemini with inter-call throttle and bounded back-off on 429."""
     elapsed = time.monotonic() - _last_call_ts[0]
     gap = _MIN_INTERVAL_SEC - elapsed
     if gap > 0:
         time.sleep(gap)
 
     backoff = _BACKOFF_BASE_SEC
-    while True:
+    for attempt in range(_MAX_RETRIES + 1):
         _last_call_ts[0] = time.monotonic()
         try:
             return client.models.generate_content(
@@ -135,10 +137,13 @@ def _gemini_generate(client, model: str, contents, cfg):
             )
         except Exception as exc:
             exc_str = str(exc)
-            if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
+            if ("429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str) and attempt < _MAX_RETRIES:
                 jitter = random.uniform(-0.1, 0.1) * backoff
                 wait = min(backoff + jitter, _BACKOFF_CAP_SEC)
-                logger.warning("429 rate-limit; sleeping %.1f s", wait)
+                logger.warning(
+                    "429 rate-limit (attempt %d/%d); sleeping %.1f s",
+                    attempt + 1, _MAX_RETRIES, wait,
+                )
                 time.sleep(wait)
                 backoff = min(backoff * 2, _BACKOFF_CAP_SEC)
                 continue
@@ -223,7 +228,7 @@ def run_classify(db_path: str, limit: int | None = None) -> dict:
     from google import genai
 
     model = config.GEMINI_MODEL
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    client = genai.Client(api_key=config.GEMINI_API_KEY, http_options={"timeout": 90_000})
 
     audit_mode = limit is not None
 

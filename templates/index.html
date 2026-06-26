@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}All Roles — AJAP{% endblock %}
+{% block content %}
+
+{# ── Filter bar ── #}
+<form method="get" action="/" class="filter-bar d-flex flex-wrap gap-2 align-items-center">
+  <input name="q" value="{{ search }}" class="form-control form-control-sm" style="width:180px"
+         placeholder="Search company / title…">
+
+  <select name="track" class="form-select form-select-sm" style="width:160px" onchange="this.form.submit()">
+    <option value="">All tracks</option>
+    {% for t in [('DATA_ENGINEERING','Data Eng'),('MLOPS_MLE','MLOps / MLE'),('GENERAL_SWE','General SWE')] %}
+    <option value="{{ t[0] }}" {% if track_filter == t[0] %}selected{% endif %}>{{ t[1] }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="fit" class="form-select form-select-sm" style="width:120px" onchange="this.form.submit()">
+    <option value="">All fits</option>
+    {% for f in ['STRONG','MEDIUM','WEAK'] %}
+    <option value="{{ f }}" {% if fit_filter == f %}selected{% endif %}>{{ f }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="resume" class="form-select form-select-sm" style="width:150px" onchange="this.form.submit()">
+    <option value="">All résumés</option>
+    {% for pick in ['swe','quant','mle','mlops','data','devops','cloud-infra'] %}
+    <option value="{{ pick }}" {% if resume_filter == pick %}selected{% endif %}>
+      {{ pick }}{% if pick_stats.get(pick) %} ({{ pick_stats[pick] }}){% endif %}
+    </option>
+    {% endfor %}
+  </select>
+
+  <select name="role_type" class="form-select form-select-sm" style="width:120px" onchange="this.form.submit()">
+    <option value="">All types</option>
+    <option value="new_grad" {% if role_type_filter == 'new_grad' %}selected{% endif %}>New Grad</option>
+    <option value="internship" {% if role_type_filter == 'internship' %}selected{% endif %}>Internship</option>
+  </select>
+
+  <select name="source" class="form-select form-select-sm" style="width:170px" onchange="this.form.submit()">
+    <option value="">All sources</option>
+    {% for s in sources %}
+    <option value="{{ s }}" {% if source_filter == s %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="status" class="form-select form-select-sm" style="width:130px" onchange="this.form.submit()">
+    <option value="">All statuses</option>
+    {% for s in ['NEW','INTERESTED','APPLIED','SKIPPED','INTERVIEWING','REJECTED','OFFER'] %}
+    <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+
+  <input type="hidden" name="sort" value="{{ sort_col }}">
+  <input type="hidden" name="dir" value="{{ sort_dir }}">
+
+  <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+  <a href="/" class="btn btn-sm btn-outline-secondary">Clear</a>
+
+  <span class="text-muted ms-2" style="font-size:0.78rem">
+    {{ total }} roles
+    {% for s, n in stats.items() %}
+      <span class="badge stat-pill {{ {'NEW':'status-new','INTERESTED':'status-interested','APPLIED':'status-applied','SKIPPED':'status-skipped'}.get(s,'status-new') }} ms-1">
+        {{ s }}: {{ n }}
+      </span>
+    {% endfor %}
+  </span>
+</form>
+
+{# ── Table ── #}
+<div class="px-3 pt-2 pb-4">
+<div class="table-responsive">
+<table class="table table-hover table-sm align-middle bg-white rounded shadow-sm">
+  <thead class="table-light">
+    <tr>
+      {% macro sort_th(col, label, css_class='') %}
+        {% set new_dir = 'asc' if (sort_col == col and sort_dir == 'desc') else 'desc' %}
+        <th class="{{ css_class }}">
+          <a class="sort-link" href="/?sort={{ col }}&dir={{ new_dir }}&q={{ search }}&track={{ track_filter }}&fit={{ fit_filter }}&resume={{ resume_filter }}&role_type={{ role_type_filter }}&source={{ source_filter }}&status={{ status_filter }}">
+            {{ label }}{% if sort_col == col %} {{ '↑' if sort_dir == 'asc' else '↓' }}{% endif %}
+          </a>
+        </th>
+      {% endmacro %}
+      {{ sort_th('company_name', 'Company', 'col-company') }}
+      <th class="col-title">Title</th>
+      {{ sort_th('career_track', 'Track', 'col-track') }}
+      {{ sort_th('fit_confidence', 'Fit', 'col-fit') }}
+      <th class="col-type">Type</th>
+      {{ sort_th('date_posted', 'Posted', 'col-date') }}
+      <th class="col-loc">Location</th>
+      {{ sort_th('application_status', 'Status', 'col-status') }}
+    </tr>
+  </thead>
+  <tbody>
+    {% for job in jobs %}
+    {% set track_cls = {'DATA_ENGINEERING':'track-de','MLOPS_MLE':'track-mle','GENERAL_SWE':'track-swe'}.get(job.career_track, '') %}
+    {% set fit_cls = {'STRONG':'fit-strong','MEDIUM':'fit-medium','WEAK':'fit-weak'}.get(job.fit_confidence, '') %}
+    {% set status_css = {'NEW':'status-new','INTERESTED':'status-interested','APPLIED':'status-applied','SKIPPED':'status-skipped','INTERVIEWING':'status-interviewing','REJECTED':'status-rejected','OFFER':'status-offer'}.get(job.application_status,'status-new') %}
+    <tr>
+      <td class="col-company truncate" title="{{ job.company_name }}">{{ job.company_name }}</td>
+      <td class="col-title">
+        <a href="{{ job.application_url }}" target="_blank" rel="noopener"
+           class="text-decoration-none text-dark fw-medium">{{ job.job_title }}</a>
+      </td>
+      <td class="col-track">
+        <span class="badge {{ track_cls }}">{{ job.career_track }}</span>
+      </td>
+      <td class="col-fit" style="white-space:nowrap">
+        {% if job.fit_confidence %}
+        <span class="badge {{ fit_cls }}">{{ job.fit_confidence }}</span>
+        {% if job.resume_pick %}<span class="badge badge-pick ms-1">{{ job.resume_pick }}</span>{% endif %}
+        {% endif %}
+      </td>
+      <td class="col-type">
+        <span class="badge bg-light text-dark border">{{ 'Intern' if job.role_type == 'internship' else 'NG' }}</span>
+      </td>
+      <td class="col-date text-muted">{{ job.date_posted }}</td>
+      <td class="col-loc truncate text-muted" title="{{ job.location }}">{{ job.location }}</td>
+      <td class="col-status">
+        <span class="badge status-badge {{ status_css }} me-1">{{ job.application_status }}</span>
+        <span class="btn-grp-status">
+          {% for s, label in [('INTERESTED','♥'),('APPLIED','✓'),('SKIPPED','✗')] %}
+          {% set is_active = job.application_status == s %}
+          <button type="button"
+            class="btn status-btn {{ 'btn-warning' if s=='INTERESTED' and is_active else 'btn-success' if s=='APPLIED' and is_active else 'btn-light' if s=='SKIPPED' and is_active else 'btn-outline-warning' if s=='INTERESTED' else 'btn-outline-success' if s=='APPLIED' else 'btn-outline-secondary' }}"
+            data-status="{{ s }}"
+            title="{{ s }}"
+            onclick="setStatus('{{ job.job_hash }}', '{{ s }}', this)">{{ label }}</button>
+          {% endfor %}
+        </span>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="text-center text-muted py-4">No roles match the current filters.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+</div>
+{% endblock %}

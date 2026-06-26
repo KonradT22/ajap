@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html as _html
 import json
 import logging
 import re
@@ -27,6 +28,16 @@ _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(text: str | None) -> str | None:
+    if not text:
+        return None
+    stripped = _TAG_RE.sub(" ", _html.unescape(text))
+    return re.sub(r"\s+", " ", stripped).strip() or None
+
 
 # ── Board pre-filter vocabulary ────────────────────────────────────────────────
 
@@ -113,7 +124,7 @@ def _fetch_greenhouse_boards(source: dict) -> list[dict]:
                 time.sleep(0.5)
             try:
                 r = client.get(
-                    f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
+                    f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
                 )
                 if r.status_code == 404:
                     dead += 1
@@ -236,17 +247,20 @@ def _normalize_greenhouse(listing: dict, source: dict) -> dict | None:
 
     token = listing.get("_board_token", "")
     source_id = str(listing["id"]) if listing.get("id") else None
+    description = _strip_html(listing.get("content"))
 
     return {
         "source_id": source_id,
         "source_name": source["name"],
         "role_type": source.get("role_type", "new_grad"),
-        "company_name": token,  # board token is best available company identifier
+        "company_name": token,
         "job_title": title,
         "application_url": norm_url,
         "is_active": 1,
         "date_posted": listing.get("updated_at"),
         "locations_raw": json.dumps(loc_names),
+        "description": description,
+        "description_source": "greenhouse-board-api" if description else None,
     }
 
 
@@ -278,6 +292,9 @@ def _normalize_lever(listing: dict, source: dict) -> dict | None:
 
     slug = listing.get("_board_slug", "")
     source_id = listing.get("id")
+    description = (listing.get("descriptionPlain") or "").strip() or _strip_html(listing.get("description"))
+    if not description:
+        description = None
 
     return {
         "source_id": source_id,
@@ -289,6 +306,8 @@ def _normalize_lever(listing: dict, source: dict) -> dict | None:
         "is_active": 1,
         "date_posted": listing.get("createdAt"),
         "locations_raw": json.dumps(all_locs),
+        "description": description,
+        "description_source": "lever-api" if description else None,
     }
 
 
@@ -376,6 +395,80 @@ def run_ingest(db_path: str) -> dict[str, int]:
             conn.close()
 
     logger.info("Ingest summary (feed sources): %s", totals)
+    return totals
+
+
+# ── Board ingest ──────────────────────────────────────────────────────────────
+
+
+def run_ingest_boards(db_path: str) -> dict[str, int]:
+    """Ingest Greenhouse + Lever board sources with inline descriptions."""
+    db.migrate_db(db_path)
+
+    sources = load_sources()
+    board_sources = [s for s in sources if s["type"] in ("greenhouse_boards", "lever_boards")]
+
+    totals: dict[str, int] = {
+        "fetched": 0, "new": 0, "queued": 0, "rejected": 0,
+        "updated": 0, "demoted": 0, "url_collisions": 0,
+    }
+
+    for source in board_sources:
+        name = source["name"]
+        fetcher = _FETCHERS[source["type"]]
+        normalizer = _NORMALIZERS[source["type"]]
+
+        logger.info("Board ingest: fetching source %r ...", name)
+        try:
+            raw_listings = fetcher(source)
+        except Exception as exc:
+            logger.error("Failed to fetch source %r: %s", name, exc)
+            continue
+
+        logger.info("Source %r: fetched %d listings", name, len(raw_listings))
+        totals["fetched"] += len(raw_listings)
+
+        conn = db.get_conn(db_path)
+        try:
+            for listing in raw_listings:
+                row = normalizer(listing, source)
+                if row is None:
+                    continue
+                h = _job_hash(row["source_id"], row["company_name"], row["job_title"], row["application_url"])
+                if db.exists(conn, h):
+                    demoted = db.reconcile_active(conn, h, row["is_active"])
+                    totals["demoted" if demoted else "updated"] += 1
+                else:
+                    status = evaluate(row)
+                    inserted = db.insert_job(
+                        conn,
+                        job_hash=h,
+                        company_name=row["company_name"],
+                        job_title=row["job_title"],
+                        application_url=row["application_url"],
+                        source_id=row.get("source_id"),
+                        source_name=row["source_name"],
+                        role_type=row["role_type"],
+                        is_active=row["is_active"],
+                        date_posted=row.get("date_posted"),
+                        locations_raw=row.get("locations_raw"),
+                        description=row.get("description"),
+                        description_source=row.get("description_source"),
+                        status=status,
+                    )
+                    if inserted:
+                        totals["new"] += 1
+                        totals["queued" if status == "QUEUED" else "rejected"] += 1
+                    else:
+                        totals["url_collisions"] += 1
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    logger.info("Board ingest summary: %s", totals)
     return totals
 
 

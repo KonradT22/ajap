@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Strong Fits — AJAP{% endblock %}
+{% block content %}
+
+<div class="px-3 pt-3 pb-4">
+  <div class="d-flex align-items-baseline gap-3 mb-2 flex-wrap">
+    <h5 class="mb-0">★ Strong Fits</h5>
+    <span class="text-muted" style="font-size:0.82rem">
+      <strong>{{ strong_count }}</strong> unreviewed STRONG matches — freshest first
+    </span>
+    <a href="/?fit=STRONG&sort=date_posted&dir=desc" class="btn btn-sm btn-outline-success ms-auto">See all STRONG →</a>
+  </div>
+
+  {# ── Stats row ── #}
+  {% if fit_stats or pick_stats %}
+  <div class="d-flex flex-wrap gap-3 mb-3" style="font-size:0.78rem">
+    {% if fit_stats %}
+    <div>
+      <span class="text-muted me-1">Fit:</span>
+      {% for level in ['STRONG','MEDIUM','WEAK'] %}{% if fit_stats.get(level) %}
+      <span class="badge {{'fit-strong' if level=='STRONG' else 'fit-medium' if level=='MEDIUM' else 'fit-weak'}} me-1">
+        {{ level }} {{ fit_stats[level] }}
+      </span>{% endif %}{% endfor %}
+    </div>
+    {% endif %}
+    {% if pick_stats %}
+    <div>
+      <span class="text-muted me-1">Résumé:</span>
+      {% for pick, n in pick_stats.items() %}
+      <span class="badge badge-pick me-1">{{ pick }} {{ n }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if not jobs %}
+    <div class="alert alert-success">
+      No unreviewed STRONG matches right now.
+      <a href="/?fit=MEDIUM&sort=date_posted&dir=desc">Browse MEDIUM fits →</a>
+    </div>
+  {% endif %}
+
+  {% for job in jobs %}
+  {% set track_cls = {'DATA_ENGINEERING':'de','MLOPS_MLE':'mle','GENERAL_SWE':'swe'}.get(job.career_track,'') %}
+  {% set track_badge = {'DATA_ENGINEERING':'track-de','MLOPS_MLE':'track-mle','GENERAL_SWE':'track-swe'}.get(job.career_track,'') %}
+  {% set status_css = {'NEW':'status-new','INTERESTED':'status-interested','APPLIED':'status-applied','SKIPPED':'status-skipped','INTERVIEWING':'status-interviewing','REJECTED':'status-rejected','OFFER':'status-offer'}.get(job.application_status,'status-new') %}
+
+  <div class="card mb-2 shortlist-card {{ track_cls }}" data-hash="{{ job.job_hash }}">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex align-items-start justify-content-between gap-2">
+        {# Left: title + meta #}
+        <div style="min-width:0">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <a href="{{ job.application_url }}" target="_blank" rel="noopener"
+               class="fw-semibold text-dark text-decoration-none fs-6">{{ job.job_title }}</a>
+            <span class="badge {{ track_badge }}">{{ job.career_track }}</span>
+            <span class="badge fit-strong">STRONG</span>
+            {% if job.resume_pick %}<span class="badge badge-pick">{{ job.resume_pick }}</span>{% endif %}
+            <span class="badge bg-light text-dark border">{{ 'Intern' if job.role_type == 'internship' else 'New Grad' }}</span>
+            <span class="badge status-badge {{ status_css }}">{{ job.application_status }}</span>
+          </div>
+          <div class="text-muted mt-1" style="font-size:0.8rem">
+            <strong>{{ job.company_name }}</strong>
+            {% if job.location %} · {{ job.location }}{% endif %}
+            {% if job.date_posted %} · {{ job.date_posted }}{% endif %}
+          </div>
+          {% if job.fit_reason %}
+          <div style="font-size:0.78rem; color:#495057; margin-top:0.25rem;">↳ {{ job.fit_reason }}</div>
+          {% endif %}
+          {% if job.description %}
+          <div class="desc-preview">{{ job.description }}</div>
+          {% endif %}
+        </div>
+        {# Right: action buttons #}
+        <div class="d-flex gap-1 flex-shrink-0 align-items-start pt-1">
+          {% for s, label, cls, outline_cls in [
+              ('INTERESTED', '♥ Interested', 'btn-warning', 'btn-outline-warning'),
+              ('APPLIED',    '✓ Applied',    'btn-success', 'btn-outline-success'),
+              ('SKIPPED',    '✗ Skip',       'btn-light',   'btn-outline-secondary')
+          ] %}
+          {% set is_active = job.application_status == s %}
+          <button type="button"
+            class="btn btn-sm status-btn {{ cls if is_active else outline_cls }}"
+            data-status="{{ s }}"
+            onclick="setStatus('{{ job.job_hash }}', '{{ s }}', this)">{{ label }}</button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if strong_count > 20 %}
+  <p class="text-muted mt-2" style="font-size:0.82rem">
+    Showing 20 of {{ strong_count }} STRONG fits.
+    <a href="/?fit=STRONG&sort=date_posted&dir=desc">See all →</a>
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

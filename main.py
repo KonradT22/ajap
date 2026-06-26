@@ -223,6 +223,55 @@ def _run_enrich(db_path: str, limit: int | None) -> None:
             print()
 
 
+def _run_daemon(db_path: str) -> None:
+    from ajap import daemon
+
+    daemon.run_daemon(db_path)
+
+
+def _run_match(db_path: str, limit: int | None) -> None:
+    from ajap import match
+
+    logger.info("Starting match pass → %s (limit=%s)", db_path, limit or "none")
+    s = match.run_match(db_path, limit=limit)
+
+    print("\nMatch complete:")
+    print(f"  Attempted : {s['total']:>6}")
+    print(f"  Failed    : {s['failed']:>6}")
+    print(f"  Total cost: ${s['total_cost_usd']:.4f}")
+    print()
+    print("  Fit confidence:")
+    for level in ("STRONG", "MEDIUM", "WEAK"):
+        n = s["confidence_counts"].get(level, 0)
+        if n:
+            print(f"    {level:<8}: {n}")
+    print()
+    print("  Résumé pick distribution:")
+    for pick, n in sorted(s["pick_counts"].items(), key=lambda x: -x[1]):
+        print(f"    {pick:<14}: {n}")
+
+
+def _run_sync_sheet(db_path: str) -> None:
+    from ajap import sheets
+
+    logger.info("Starting sheet sync → %s", db_path)
+    result = sheets.run_sync(db_path)
+    print(f"\nSheet sync complete:")
+    print(f"  Roles tab    : {result['roles']:>5} rows")
+    print(f"  Shortlist tab: {result['shortlist']:>5} rows")
+
+
+def _run_ingest_boards(db_path: str) -> None:
+    logger.info("Starting board ingest pass → %s", db_path)
+    s = ingest.run_ingest_boards(db_path)
+    print(
+        f"\nBoard ingest complete: {s['fetched']} fetched / "
+        f"{s['new']} new ({s['queued']} queued, {s['rejected']} rejected) / "
+        f"{s['updated']} updated / {s['demoted']} demoted / "
+        f"{s['url_collisions']} url-collisions"
+    )
+
+
 def _run_dry_run_boards(db_path: str) -> None:
     logger.info("Starting board dry-run → %s", db_path)
     report = ingest.run_dry_run_boards(db_path)
@@ -269,6 +318,26 @@ def main() -> None:
         help="Classify QUEUED rows via Gemini; routes to track and sets resume path",
     )
     parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Run the full pipeline on a 30-min ±5-min jitter loop with Discord/email alerts",
+    )
+    parser.add_argument(
+        "--sync-sheet",
+        action="store_true",
+        help="Mirror PENDING_EXECUTION roles to Google Sheets (one-way, full rewrite)",
+    )
+    parser.add_argument(
+        "--ingest-boards",
+        action="store_true",
+        help="Ingest Greenhouse + Lever boards with inline descriptions",
+    )
+    parser.add_argument(
+        "--match",
+        action="store_true",
+        help="Pick résumé lane + rate fit for all unmatched PENDING_EXECUTION roles",
+    )
+    parser.add_argument(
         "--dry-run-boards",
         action="store_true",
         help="Fetch Greenhouse + Lever boards, apply pre-filter, report net-new (no DB writes)",
@@ -283,7 +352,13 @@ def main() -> None:
     args = parser.parse_args()
 
     db_path = config.DB_PATH
-    if args.rebuild:
+    if args.daemon:
+        _run_daemon(db_path)
+    elif args.match:
+        _run_match(db_path, args.limit)
+    elif args.sync_sheet:
+        _run_sync_sheet(db_path)
+    elif args.rebuild:
         _run_rebuild(db_path)
     elif args.refilter:
         _run_refilter(db_path)
@@ -291,6 +366,8 @@ def main() -> None:
         _run_enrich(db_path, args.limit)
     elif args.classify:
         _run_classify(db_path, args.limit)
+    elif args.ingest_boards:
+        _run_ingest_boards(db_path)
     elif args.dry_run_boards:
         _run_dry_run_boards(db_path)
     else:
