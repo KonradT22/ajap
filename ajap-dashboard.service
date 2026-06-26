@@ -1,0 +1,16 @@
+[Unit]
+Description=AJAP dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=konradical
+WorkingDirectory=/home/konradical/ajap
+EnvironmentFile=/home/konradical/ajap/.env
+ExecStart=/home/konradical/ajap/.venv/bin/python dashboard.py --no-browser
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

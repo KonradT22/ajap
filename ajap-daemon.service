@@ -1,0 +1,16 @@
+[Unit]
+Description=AJAP pipeline daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=konradical
+WorkingDirectory=/home/konradical/ajap
+EnvironmentFile=/home/konradical/ajap/.env
+ExecStart=/home/konradical/ajap/.venv/bin/python main.py --daemon
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
