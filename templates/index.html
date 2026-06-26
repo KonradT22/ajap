@@ -59,7 +59,7 @@
   <span class="text-muted ms-2" style="font-size:0.78rem">
     {{ total }} roles
     {% for s, n in stats.items() %}
-      <span class="badge stat-pill {{ {'NEW':'status-new','INTERESTED':'status-interested','APPLIED':'status-applied','SKIPPED':'status-skipped'}.get(s,'status-new') }} ms-1">
+      <span class="badge stat-pill {{ {'NEW':'status-new','INTERESTED':'status-interested','APPLIED':'status-applied','SKIPPED':'status-skipped'}.get(s,'status-new') }} ms-1" data-stat="{{ s }}">
         {{ s }}: {{ n }}
       </span>
     {% endfor %}

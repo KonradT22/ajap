@@ -65,27 +65,51 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 function setStatus(jobHash, status, btn) {
+  const row = btn.closest('tr') || btn.closest('.shortlist-card');
+  const badge = row ? row.querySelector('.status-badge') : null;
+  const oldStatus = badge ? badge.textContent.trim() : 'NEW';
+  // Toggle: clicking the already-active status reverts to NEW
+  const targetStatus = (oldStatus === status) ? 'NEW' : status;
+
   fetch('/api/status', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({job_hash: jobHash, status: status})
+    body: JSON.stringify({job_hash: jobHash, status: targetStatus})
   })
   .then(r => r.json())
   .then(data => {
     if (!data.ok) return;
-    const row = btn.closest('tr') || btn.closest('.shortlist-card');
-    // Update badge
-    const badge = row.querySelector('.status-badge');
     if (badge) {
-      badge.textContent = status;
-      badge.className = 'badge status-badge ' + statusCls(status);
+      badge.textContent = targetStatus;
+      badge.className = 'badge status-badge ' + statusCls(targetStatus);
     }
-    // Highlight active button
     row.querySelectorAll('.status-btn').forEach(b => {
       const s = b.dataset.status;
-      b.className = 'btn status-btn ' + (s === status ? activeCls(s) : outlineCls(s));
+      b.className = 'btn status-btn ' + (s === targetStatus ? activeCls(s) : outlineCls(s));
     });
+    // Keep filter-bar stat counters in sync
+    adjustStat(oldStatus, -1);
+    adjustStat(targetStatus, +1);
   });
+}
+function adjustStat(status, delta) {
+  let pill = document.querySelector('[data-stat="' + status + '"]');
+  if (pill) {
+    const m = pill.textContent.match(/:\s*(\d+)/);
+    if (m) {
+      const n = Math.max(0, parseInt(m[1]) + delta);
+      pill.textContent = status + ': ' + n;
+    }
+  } else if (delta > 0) {
+    const ref = document.querySelector('[data-stat]');
+    if (ref) {
+      pill = document.createElement('span');
+      pill.className = 'badge stat-pill ' + statusCls(status) + ' ms-1';
+      pill.setAttribute('data-stat', status);
+      pill.textContent = status + ': 1';
+      ref.parentNode.appendChild(pill);
+    }
+  }
 }
 function statusCls(s) {
   return {'NEW':'status-new','INTERESTED':'status-interested','APPLIED':'status-applied',
