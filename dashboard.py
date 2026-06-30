@@ -214,7 +214,7 @@ def main():
     db.migrate_db(DB_PATH)
     if not no_browser:
         Timer(0.8, lambda: webbrowser.open("http://localhost:5001")).start()
-    app.run(host="127.0.0.1", port=5001, debug=False, use_reloader=False)
+    app.run(host="0.0.0.0", port=5001, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":

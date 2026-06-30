@@ -5,7 +5,7 @@ import html as _html
 import json
 import logging
 import re
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -116,60 +116,82 @@ def _fetch_simplify_feed(source: dict) -> list[dict]:
 
 def _fetch_greenhouse_boards(source: dict) -> list[dict]:
     tokens: list[str] = json.loads(Path(source["boards_file"]).read_text())
-    results: list[dict] = []
+    results: list[list[dict]] = [None] * len(tokens)  # type: ignore[list-item]
     dead = 0
-    with httpx.Client(timeout=15, headers={"User-Agent": _UA}, follow_redirects=True) as client:
-        for i, token in enumerate(tokens):
-            if i > 0:
-                time.sleep(0.5)
-            try:
-                r = client.get(
-                    f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true"
-                )
-                if r.status_code == 404:
-                    dead += 1
-                    continue
-                r.raise_for_status()
-                jobs = r.json().get("jobs") or []
-                for job in jobs:
-                    job["_board_token"] = token
-                results.extend(jobs)
-            except Exception as exc:
-                logger.debug("Greenhouse board %r failed: %s", token, exc)
+
+    def _fetch(idx_token: tuple[int, str]) -> tuple[int, list[dict], bool]:
+        idx, token = idx_token
+        try:
+            r = httpx.get(
+                f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true",
+                timeout=15, headers={"User-Agent": _UA}, follow_redirects=True,
+            )
+            if r.status_code == 404:
+                return idx, [], True
+            r.raise_for_status()
+            jobs = r.json().get("jobs") or []
+            for job in jobs:
+                job["_board_token"] = token
+            return idx, jobs, False
+        except Exception as exc:
+            logger.debug("Greenhouse board %r failed: %s", token, exc)
+            return idx, [], True
+
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futures = {pool.submit(_fetch, (i, t)): t for i, t in enumerate(tokens)}
+        done = 0
+        for fut in as_completed(futures):
+            idx, jobs, is_dead = fut.result()
+            results[idx] = jobs
+            if is_dead:
                 dead += 1
-            if (i + 1) % 100 == 0:
-                logger.info("Greenhouse: %d/%d boards fetched (%d dead)", i + 1, len(tokens), dead)
-    logger.info("Greenhouse: %d boards, %d jobs, %d dead", len(tokens), len(results), dead)
-    return results
+            done += 1
+            if done % 100 == 0:
+                logger.info("Greenhouse: %d/%d boards fetched (%d dead)", done, len(tokens), dead)
+
+    flat = [job for batch in results if batch for job in batch]
+    logger.info("Greenhouse: %d boards, %d jobs, %d dead", len(tokens), len(flat), dead)
+    return flat
 
 
 def _fetch_lever_boards(source: dict) -> list[dict]:
     slugs: list[str] = json.loads(Path(source["boards_file"]).read_text())
-    results: list[dict] = []
+    results: list[list[dict]] = [None] * len(slugs)  # type: ignore[list-item]
     dead = 0
-    with httpx.Client(timeout=15, headers={"User-Agent": _UA}, follow_redirects=True) as client:
-        for i, slug in enumerate(slugs):
-            if i > 0:
-                time.sleep(0.5)
-            try:
-                r = client.get(
-                    f"https://api.lever.co/v0/postings/{slug}?mode=json"
-                )
-                if r.status_code == 404:
-                    dead += 1
-                    continue
-                r.raise_for_status()
-                postings = r.json() if isinstance(r.json(), list) else []
-                for p in postings:
-                    p["_board_slug"] = slug
-                results.extend(postings)
-            except Exception as exc:
-                logger.debug("Lever board %r failed: %s", slug, exc)
+
+    def _fetch(idx_slug: tuple[int, str]) -> tuple[int, list[dict], bool]:
+        idx, slug = idx_slug
+        try:
+            r = httpx.get(
+                f"https://api.lever.co/v0/postings/{slug}?mode=json",
+                timeout=15, headers={"User-Agent": _UA}, follow_redirects=True,
+            )
+            if r.status_code == 404:
+                return idx, [], True
+            r.raise_for_status()
+            postings = r.json() if isinstance(r.json(), list) else []
+            for p in postings:
+                p["_board_slug"] = slug
+            return idx, postings, False
+        except Exception as exc:
+            logger.debug("Lever board %r failed: %s", slug, exc)
+            return idx, [], True
+
+    with ThreadPoolExecutor(max_workers=15) as pool:
+        futures = {pool.submit(_fetch, (i, s)): s for i, s in enumerate(slugs)}
+        done = 0
+        for fut in as_completed(futures):
+            idx, postings, is_dead = fut.result()
+            results[idx] = postings
+            if is_dead:
                 dead += 1
-            if (i + 1) % 50 == 0:
-                logger.info("Lever: %d/%d boards fetched (%d dead)", i + 1, len(slugs), dead)
-    logger.info("Lever: %d boards, %d jobs, %d dead", len(slugs), len(results), dead)
-    return results
+            done += 1
+            if done % 50 == 0:
+                logger.info("Lever: %d/%d boards fetched (%d dead)", done, len(slugs), dead)
+
+    flat = [p for batch in results if batch for p in batch]
+    logger.info("Lever: %d boards, %d jobs, %d dead", len(slugs), len(flat), dead)
+    return flat
 
 
 _FETCHERS: dict = {

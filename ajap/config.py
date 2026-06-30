@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # 2.0-flash retired Mar 2026
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").split("#")[0].strip()  # strip accidental inline comments
 GEMINI_RPM: int = int(os.getenv("GEMINI_RPM", "150"))  # paid Tier-1 ≈150-300 RPM; free tier ≈10
 DISCORD_WEBHOOK_URL: str = os.getenv("DISCORD_WEBHOOK_URL", "")
 SMTP_HOST: str = os.getenv("SMTP_HOST", "")
