@@ -50,4 +50,4 @@ Classification calls go to Gemini (`google-genai` SDK). Only public job-listing 
 
 ## Roadmap phase status
 
-The scaffold exists; all six phases are unimplemented. Build in order: Phase 1 (ingest + DB) → 2 (filter) → 3 (classify) → 4 (tracking/alerts) → 5 (résumé tailoring) → 6 (assisted form fill via Playwright).
+Phases 1–5 are fully implemented and running in production. Phase 6 (assisted form fill via Playwright) is not built.
