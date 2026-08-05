@@ -14,7 +14,7 @@ A self-hosted intelligence system that continuously monitors **800+ company job 
 Greenhouse API  ─┐
 Lever API       ─┤─▶  Pre-filter  ─▶  Gemini 2.5 Flash  ─▶  Match  ─▶  Discord alert
 SimplifyJobs    ─┘    (regex)         (classify + route)     (fit score)      │
-                           │                                                   ▼
+                           │                                                  ▼
                        SQLite ◀─────────────────────────────────────── Flask dashboard
 ```
 
