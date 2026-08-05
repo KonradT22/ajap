@@ -1,87 +1,143 @@
-# AJAP — Job-Search Command Center
+# AJAP — Automated Job Application Pipeline
 
-A local-first pipeline that **discovers, filters, classifies, and tracks** new-grad and
-off-cycle software / data-infrastructure roles — so the tedious 90% of a job hunt is automated
-and your attention goes only to the roles worth your time.
+A self-hosted intelligence system that continuously monitors **800+ company job boards**, filters and classifies every listing with an LLM, and surfaces only the roles worth applying to — running 24/7 on a Raspberry Pi.
 
-> **What this is:** an intelligence-gathering and tracking system. It aggregates public
-> listings, filters them against your criteria, routes them by career track, matches the right
-> résumé, and keeps state on everything you've seen.
+> **What it is:** end-to-end job-search automation — discovery, filtering, LLM classification, résumé routing, and a review dashboard with real-time Discord alerts.
 >
-> **What this deliberately is not:** an auto-submitter. The final "Submit" on any application
-> stays with you. No anti-bot evasion, no fingerprint spoofing, no CAPTCHA defeat — those
-> break platform terms, get you flagged at the firms you most want, and produce low-quality
-> applications. Leaving the submit step to a human is the design decision that keeps this both
-> defensible and effective.
+> **What it deliberately isn't:** an auto-submitter. The final click stays with the user. No anti-bot evasion, no CAPTCHA defeat — the submit step being human is an intentional design decision.
 
-## Architecture
+---
+
+## How it works
 
 ```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│   Ingest     │ -> │  Pre-filter  │ -> │   Classify   │ -> │   Review /   │
-│ (poll feeds) │    │   (regex)    │    │ (Gemini LLM) │    │   Tracking   │
-└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
-        │                  │                   │                   │
-        └──────────────────┴─── SQLite (state) ┴───────────────────┘
-                                    │
-                          Discord / email alerts
+Greenhouse API  ─┐
+Lever API       ─┤─▶  Pre-filter  ─▶  Gemini 2.5 Flash  ─▶  Match  ─▶  Discord alert
+SimplifyJobs    ─┘    (regex)         (classify + route)     (fit score)      │
+                           │                                                   ▼
+                       SQLite ◀─────────────────────────────────────── Flask dashboard
 ```
+
+Every 30 minutes the daemon:
+
+1. **Ingests** 583 Greenhouse boards + 231 Lever boards concurrently (20 workers), plus the SimplifyJobs new-grad/internship feed — ~52 000 listings per cycle in under 2 minutes
+2. **Deduplicates** via `SHA-256(source_id)` — never processes the same listing twice
+3. **Pre-filters** with regex rules: drops senior/staff/lead titles, non-engineering departments, and non-US locations before any LLM call
+4. **Classifies** survivors with Gemini 2.5 Flash into `DATA_ENGINEERING` / `MLOPS_MLE` / `GENERAL_SWE` / `IGNORE`, with structured JSON output and cost tracking
+5. **Matches** each passing role against résumé variants from `profile.json`, scoring `STRONG` / `MEDIUM` / `WEAK` fit with a reason
+6. **Alerts** via Discord webhook for every new match; stamps `alerted_at` so nothing is ever double-sent
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Language | Python 3.12 |
+| Scheduling | APScheduler (blocking, interval + jitter) |
+| HTTP | httpx (sync + async-style concurrent fetching) |
+| Concurrency | `ThreadPoolExecutor` — 20 workers for Greenhouse, 15 for Lever |
+| LLM | Google Gemini 2.5 Flash (`google-genai` SDK) |
+| Storage | SQLite with trigger-maintained `timestamp_updated` |
+| Dashboard | Flask + Jinja2 + Bootstrap 5 |
+| Alerts | Discord webhook |
+| Deployment | systemd services on Raspberry Pi 5 (aarch64), remote access via Tailscale |
+
+---
+
+## Dashboard
+
+A local Flask dashboard (port 5001) lets you review and track every classified role:
+
+- Filter by career track, fit score, résumé variant, role type, source, and status
+- Sort by discovery time (default), post date, fit, or company
+- One-click status updates (♥ Interested / ✓ Applied / ✗ Skip) with live stat counter sync
+- ★ Strong Fits shortlist — unreviewed STRONG matches, freshest first
+
+---
 
 ## Project structure
 
 ```
 ajap/
-├── ajap/                   # application package
-│   ├── __init__.py
-│   ├── config.py           # load .env + profile.json        (phase 1)
-│   ├── db.py               # SQLite layer + schema            (phase 1)
-│   ├── ingest.py           # poll feeds, dedup, write rows    (phase 1)
-│   ├── filter.py           # regex whitelist/blacklist        (phase 2)
-│   ├── classify.py         # Gemini career-track routing      (phase 3)
-│   └── notify.py           # Discord / email alerts           (phase 4)
+├── ajap/
+│   ├── config.py        # .env + profile.json loader
+│   ├── db.py            # SQLite schema, migrations, query helpers
+│   ├── ingest.py        # concurrent board + feed polling, dedup, normalization
+│   ├── filter.py        # regex pre-filter (title / dept / location)
+│   ├── enrich.py        # JD fetch for listings missing descriptions
+│   ├── classify.py      # Gemini classification + cost tracking
+│   ├── match.py         # résumé fit scoring
+│   ├── notify.py        # Discord / email alerts
+│   └── daemon.py        # APScheduler pipeline loop
+├── dashboard.py         # Flask review UI
+├── templates/           # Jinja2 templates (base, index, shortlist)
 ├── config/
-│   ├── profile.example.json
-│   └── profile.json        # your real profile (gitignored)
-├── data/                   # SQLite db lives here (gitignored)
-├── resumes/                # your résumé PDFs (gitignored)
+│   ├── profile.example.json   # résumé paths, preferences (template)
+│   └── sources.json           # board lists (Greenhouse tokens, Lever slugs)
 ├── tests/
-├── main.py                 # entrypoint / scheduler
+├── ajap-daemon.service        # systemd unit
+├── ajap-dashboard.service     # systemd unit
 ├── .env.example
-├── requirements.txt
-└── .gitignore
+└── requirements.txt
 ```
+
+---
 
 ## Setup
 
 ```bash
-# 1. Clone and enter
-git clone git@github.com:<you>/ajap.git && cd ajap
+# 1. Clone
+git clone https://github.com/KonradT22/ajap.git && cd ajap
 
 # 2. Virtual environment
 python3 -m venv .venv && source .venv/bin/activate
-
-# 3. Dependencies
 pip install -r requirements.txt
 
-# 4. Configuration
-cp .env.example .env                       # then fill in real keys
-cp config/profile.example.json config/profile.json   # then fill in your data
+# 3. Configuration
+cp .env.example .env                              # add Gemini API key + Discord webhook
+cp config/profile.example.json config/profile.json   # add résumé paths + preferences
+
+# 4. Run
+python main.py --daemon      # start the polling daemon
+python dashboard.py          # start the review dashboard (localhost:5001)
 ```
 
-## Roadmap
+### Deploy as systemd services (Linux / Raspberry Pi)
 
-- [ ] **Phase 1 — Ingestion + storage.** Poll the SimplifyJobs repo and public Greenhouse/
-      Lever/Ashby boards, dedup via SHA-256(company+title), write to SQLite.
-- [ ] **Phase 2 — Pre-filter.** Regex whitelist/blacklist on title; mark non-matches `EVAL_REJECTED`.
-- [ ] **Phase 3 — Classification.** Route survivors into `DATA_ENGINEERING` / `MLOPS_MLE` /
-      `GENERAL_SWE` / `IGNORE`; attach the matching résumé.
-- [ ] **Phase 4 — Tracking + alerts.** Status lifecycle + Discord/email pings on strong matches.
-- [ ] **Phase 5 — Résumé matching + tailoring.** Suggest variant and targeted edits per role.
-- [ ] **Phase 6 — Assisted fill.** Pre-populate the real form from `profile.json`; you review and submit.
+```bash
+sudo cp ajap-daemon.service ajap-dashboard.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ajap-daemon ajap-dashboard
+```
+
+---
+
+## Configuration
+
+**`.env`** — secrets (never committed):
+```
+GEMINI_API_KEY=...
+DISCORD_WEBHOOK_URL=...
+POLL_INTERVAL_MINUTES=30
+```
+
+**`config/profile.json`** — personal preferences (never committed):
+```json
+{
+  "resumes": {
+    "swe": "resumes/swe.pdf",
+    "data": "resumes/data.pdf"
+  },
+  "locations": ["New York", "San Francisco", "Remote"],
+  "role_types": ["new_grad", "internship"]
+}
+```
+
+---
 
 ## Security
 
-- All secrets live in `.env` (gitignored).
-- `config/profile.json` and everything in `resumes/` and `data/` are gitignored — PII never
-  enters version control.
-- The job description text sent to the LLM contains no personal data; only public listing text.
+- All secrets in `.env` (gitignored)
+- `config/profile.json`, `resumes/`, and `data/` are gitignored — no PII in version control
+- Only public job listing text is sent to the LLM; no personal data leaves the machine
