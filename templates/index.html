@@ -7,6 +7,9 @@
   <input name="q" value="{{ search }}" class="form-control form-control-sm" style="width:180px"
          placeholder="Search company / title…">
 
+  <input name="location" value="{{ location_filter }}" class="form-control form-control-sm" style="width:150px"
+         placeholder="Location…">
+
   <select name="track" class="form-select form-select-sm" style="width:160px" onchange="this.form.submit()">
     <option value="">All tracks</option>
     {% for t in [('DATA_ENGINEERING','Data Eng'),('MLOPS_MLE','MLOps / MLE'),('GENERAL_SWE','General SWE')] %}
@@ -75,7 +78,7 @@
       {% macro sort_th(col, label, css_class='') %}
         {% set new_dir = 'asc' if (sort_col == col and sort_dir == 'desc') else 'desc' %}
         <th class="{{ css_class }}">
-          <a class="sort-link" href="/?sort={{ col }}&dir={{ new_dir }}&q={{ search }}&track={{ track_filter }}&fit={{ fit_filter }}&resume={{ resume_filter }}&role_type={{ role_type_filter }}&source={{ source_filter }}&status={{ status_filter }}">
+          <a class="sort-link" href="/?sort={{ col }}&dir={{ new_dir }}&q={{ search }}&location={{ location_filter }}&track={{ track_filter }}&fit={{ fit_filter }}&resume={{ resume_filter }}&role_type={{ role_type_filter }}&source={{ source_filter }}&status={{ status_filter }}">
             {{ label }}{% if sort_col == col %} {{ '↑' if sort_dir == 'asc' else '↓' }}{% endif %}
           </a>
         </th>

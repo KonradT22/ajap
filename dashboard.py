@@ -77,6 +77,7 @@ def index():
     status_filter = request.args.get("status", "")
     fit_filter = request.args.get("fit", "")
     resume_filter = request.args.get("resume", "")
+    location_filter = request.args.get("location", "").strip()
     search = request.args.get("q", "").strip()
     sort_col = request.args.get("sort", "timestamp_discovered")
     sort_dir = request.args.get("dir", "desc")
@@ -107,6 +108,9 @@ def index():
     if resume_filter:
         query += " AND resume_pick = ?"
         params.append(resume_filter)
+    if location_filter:
+        query += " AND locations_raw LIKE ?"
+        params.append(f"%{location_filter}%")
     if search:
         query += " AND (company_name LIKE ? OR job_title LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%"])
@@ -148,6 +152,7 @@ def index():
         status_filter=status_filter,
         fit_filter=fit_filter,
         resume_filter=resume_filter,
+        location_filter=location_filter,
         pick_stats=pick_stats,
         search=search,
         sort_col=sort_col,
