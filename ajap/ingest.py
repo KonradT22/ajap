@@ -194,10 +194,68 @@ def _fetch_lever_boards(source: dict) -> list[dict]:
     return flat
 
 
+def _fetch_workday_boards(source: dict) -> list[dict]:
+    boards: list[dict] = json.loads(Path(source["boards_file"]).read_text())
+    results: list[list[dict]] = [None] * len(boards)  # type: ignore[list-item]
+    dead = 0
+
+    def _fetch(idx_board: tuple[int, dict]) -> tuple[int, list[dict], bool]:
+        idx, board = idx_board
+        tenant, wd, site = board["tenant"], board["wd"], board["site"]
+        host = f"{tenant}.{wd}.myworkdayjobs.com"
+        url = f"https://{host}/wday/cxs/{tenant}/{site}/jobs"
+        postings: list[dict] = []
+        offset = 0
+        limit = 20
+        try:
+            while True:
+                r = httpx.post(
+                    url, timeout=15,
+                    headers={"User-Agent": _UA, "Content-Type": "application/json"},
+                    json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
+                )
+                if r.status_code == 404:
+                    return idx, [], True
+                r.raise_for_status()
+                data = r.json()
+                batch = data.get("jobPostings") or []
+                if not batch:
+                    break
+                for p in batch:
+                    p["_wd_host"] = host
+                    p["_wd_site"] = site
+                    p["_wd_tenant"] = tenant
+                postings.extend(batch)
+                offset += limit
+                if offset >= data.get("total", offset) or offset > 2000:
+                    break
+            return idx, postings, False
+        except Exception as exc:
+            logger.debug("Workday board %r failed: %s", tenant, exc)
+            return idx, [], True
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(_fetch, (i, b)): b for i, b in enumerate(boards)}
+        done = 0
+        for fut in as_completed(futures):
+            idx, postings, is_dead = fut.result()
+            results[idx] = postings
+            if is_dead:
+                dead += 1
+            done += 1
+            if done % 20 == 0:
+                logger.info("Workday: %d/%d boards fetched (%d dead)", done, len(boards), dead)
+
+    flat = [p for batch in results if batch for p in batch]
+    logger.info("Workday: %d boards, %d jobs, %d dead", len(boards), len(flat), dead)
+    return flat
+
+
 _FETCHERS: dict = {
     "simplify_feed":     _fetch_simplify_feed,
     "greenhouse_boards": _fetch_greenhouse_boards,
     "lever_boards":      _fetch_lever_boards,
+    "workday_boards":    _fetch_workday_boards,
 }
 
 
@@ -333,10 +391,57 @@ def _normalize_lever(listing: dict, source: dict) -> dict | None:
     }
 
 
+def _normalize_workday(listing: dict, source: dict) -> dict | None:
+    """Normalize a Workday CXS job posting. Applies location/dept/seniority pre-filter.
+
+    Workday's list endpoint doesn't expose department metadata (only the detail
+    endpoint does, which would mean one extra request per job), so the dept gate
+    falls through to the inclusive title keyword check. locationsText also collapses
+    to "N Locations" for multi-site postings, so ambiguous location text is kept
+    (high-recall), matching the empty-locations behavior used for other sources.
+    """
+    title = (listing.get("title") or "").strip()
+    external_path = (listing.get("externalPath") or "").strip()
+    if not (title and external_path):
+        return None
+
+    loc_text = (listing.get("locationsText") or "").strip()
+    loc_names = [loc_text] if loc_text else []
+    if not _board_location_pass(loc_names, is_remote=listing.get("remoteType") == "Remote"):
+        return None
+
+    if not _passes_dept_gate([], title):
+        return None
+
+    if not _passes_seniority_gate(title):
+        return None
+
+    host = listing.get("_wd_host", "")
+    site = listing.get("_wd_site", "")
+    tenant = listing.get("_wd_tenant", "")
+    url = f"https://{host}/{site}{external_path}"
+    job_id = (listing.get("bulletFields") or [None])[0]
+
+    return {
+        "source_id": f"{tenant}:{job_id}" if job_id else None,
+        "source_name": source["name"],
+        "role_type": source.get("role_type", "new_grad"),
+        "company_name": tenant,
+        "job_title": title,
+        "application_url": url,
+        "is_active": 1,
+        "date_posted": None,
+        "locations_raw": json.dumps(loc_names),
+        "description": None,
+        "description_source": None,
+    }
+
+
 _NORMALIZERS: dict = {
     "simplify_feed":     _normalize_simplify,
     "greenhouse_boards": _normalize_greenhouse,
     "lever_boards":      _normalize_lever,
+    "workday_boards":    _normalize_workday,
 }
 
 
@@ -424,11 +529,11 @@ def run_ingest(db_path: str) -> dict[str, int]:
 
 
 def run_ingest_boards(db_path: str) -> dict[str, int]:
-    """Ingest Greenhouse + Lever board sources with inline descriptions."""
+    """Ingest Greenhouse + Lever + Workday board sources with inline descriptions."""
     db.migrate_db(db_path)
 
     sources = load_sources()
-    board_sources = [s for s in sources if s["type"] in ("greenhouse_boards", "lever_boards")]
+    board_sources = [s for s in sources if s["type"] in ("greenhouse_boards", "lever_boards", "workday_boards")]
 
     totals: dict[str, int] = {
         "fetched": 0, "new": 0, "queued": 0, "rejected": 0,
@@ -498,7 +603,7 @@ def run_ingest_boards(db_path: str) -> dict[str, int]:
 
 
 def run_dry_run_boards(db_path: str) -> dict:
-    """Fetch Greenhouse + Lever boards, apply pre-filter, report net-new vs DB.
+    """Fetch Greenhouse + Lever + Workday boards, apply pre-filter, report net-new vs DB.
 
     Nothing is written to the DB.
     """
@@ -513,7 +618,7 @@ def run_dry_run_boards(db_path: str) -> dict:
     conn.close()
 
     sources = load_sources()
-    board_sources = [s for s in sources if s["type"] in ("greenhouse_boards", "lever_boards")]
+    board_sources = [s for s in sources if s["type"] in ("greenhouse_boards", "lever_boards", "workday_boards")]
 
     report: dict[str, dict] = {}
 
@@ -546,13 +651,17 @@ def run_dry_run_boards(db_path: str) -> dict:
                     if o.get("name"):
                         loc_names.append(o["name"])
                 loc_ok = _board_location_pass(loc_names)
-            else:
+            elif source["type"] == "lever_boards":
                 cats = listing.get("categories") or {}
                 is_remote = listing.get("workplaceType") == "remote"
                 all_locs = cats.get("allLocations") or []
                 if not all_locs and cats.get("location"):
                     all_locs = [cats["location"]]
                 loc_ok = _board_location_pass(all_locs, is_remote=is_remote)
+            else:  # workday_boards
+                loc_text = (listing.get("locationsText") or "").strip()
+                loc_names = [loc_text] if loc_text else []
+                loc_ok = _board_location_pass(loc_names, is_remote=listing.get("remoteType") == "Remote")
 
             if not loc_ok:
                 dropped_location += 1
@@ -561,9 +670,11 @@ def run_dry_run_boards(db_path: str) -> dict:
             # Dept check
             if source["type"] == "greenhouse_boards":
                 depts = [d.get("name", "") for d in (listing.get("departments") or []) if d.get("name")]
-            else:
+            elif source["type"] == "lever_boards":
                 cats = listing.get("categories") or {}
                 depts = [n for n in [cats.get("team"), cats.get("department")] if n]
+            else:  # workday_boards — no department metadata in the list endpoint
+                depts = []
 
             if not _passes_dept_gate(depts, title):
                 dropped_dept += 1

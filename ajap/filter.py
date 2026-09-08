@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -44,13 +45,24 @@ _NON_US_MARKERS: tuple[str, ...] = (
     "taiwan",
     "south korea",
     "new zealand",
+    "united arab emirates",
 )
+
+
+# Workday board postings format many locations as "City, XXX" with an ISO-3166
+# alpha-3 country code (e.g. "Bengaluru, IND", "Dubai, ARE") instead of a spelled-out
+# country name, which the marker list above doesn't catch. US locations from the
+# same source use 2-letter state codes or the literal "USA", never a 3-letter code.
+_ISO3_SUFFIX_RE = re.compile(r",\s*([A-Z]{3})\s*$")
 
 
 def _is_non_us(loc: str) -> bool:
     """True if a single location string is clearly not US."""
     l = loc.lower().strip()
-    return any(marker in l for marker in _NON_US_MARKERS)
+    if any(marker in l for marker in _NON_US_MARKERS):
+        return True
+    m = _ISO3_SUFFIX_RE.search(loc.strip())
+    return bool(m and m.group(1) != "USA")
 
 
 def _us_gate(job: dict) -> bool:

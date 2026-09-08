@@ -23,5 +23,11 @@
     "type": "lever_boards",
     "boards_file": "config/boards_lever.json",
     "role_type": "new_grad"
+  },
+  {
+    "name": "workday-boards",
+    "type": "workday_boards",
+    "boards_file": "config/boards_workday.json",
+    "role_type": "new_grad"
   }
 ]

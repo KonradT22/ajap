@@ -1,0 +1,8 @@
+[
+  {"tenant": "autodesk", "wd": "wd1", "site": "Ext"},
+  {"tenant": "salesforce", "wd": "wd12", "site": "External_Career_Site"},
+  {"tenant": "capitalone", "wd": "wd12", "site": "Capital_One"},
+  {"tenant": "collegeboard", "wd": "wd1", "site": "Careers"},
+  {"tenant": "ciena", "wd": "wd5", "site": "Careers"},
+  {"tenant": "symbotic", "wd": "wd504", "site": "Symbotic"}
+]
