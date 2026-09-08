@@ -15,7 +15,7 @@ app = Flask(__name__)
 DB_PATH = config.DB_PATH
 
 _VALID_STATUSES = {"NEW", "INTERESTED", "APPLIED", "SKIPPED", "INTERVIEWING", "REJECTED", "OFFER"}
-_VALID_SORTS = {"date_posted", "career_track", "company_name", "application_status", "fit_confidence"}
+_VALID_SORTS = {"date_posted", "timestamp_discovered", "career_track", "company_name", "application_status", "fit_confidence"}
 
 
 def _parse_location(raw: str | None) -> str:
@@ -59,6 +59,7 @@ def _row_to_dict(row) -> dict:
         "role_type": row["role_type"] or "new_grad",
         "source_name": row["source_name"] or "?",
         "date_posted": _fmt_date(row["date_posted"]),
+        "timestamp_discovered": _fmt_date(row["timestamp_discovered"]),
         "location": _parse_location(row["locations_raw"]),
         "application_status": row["application_status"] or "NEW",
         "description": row["description"] or "",
@@ -77,7 +78,7 @@ def index():
     fit_filter = request.args.get("fit", "")
     resume_filter = request.args.get("resume", "")
     search = request.args.get("q", "").strip()
-    sort_col = request.args.get("sort", "date_posted")
+    sort_col = request.args.get("sort", "timestamp_discovered")
     sort_dir = request.args.get("dir", "desc")
 
     if sort_col not in _VALID_SORTS:

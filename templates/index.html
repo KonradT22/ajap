@@ -85,6 +85,7 @@
       {{ sort_th('career_track', 'Track', 'col-track') }}
       {{ sort_th('fit_confidence', 'Fit', 'col-fit') }}
       <th class="col-type">Type</th>
+      {{ sort_th('timestamp_discovered', 'Found', 'col-date') }}
       {{ sort_th('date_posted', 'Posted', 'col-date') }}
       <th class="col-loc">Location</th>
       {{ sort_th('application_status', 'Status', 'col-status') }}
@@ -113,6 +114,7 @@
       <td class="col-type">
         <span class="badge bg-light text-dark border">{{ 'Intern' if job.role_type == 'internship' else 'NG' }}</span>
       </td>
+      <td class="col-date text-muted">{{ job.timestamp_discovered }}</td>
       <td class="col-date text-muted">{{ job.date_posted }}</td>
       <td class="col-loc truncate text-muted" title="{{ job.location }}">{{ job.location }}</td>
       <td class="col-status">
