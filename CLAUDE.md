@@ -31,7 +31,7 @@ pytest tests/test_foo.py::test_bar   # single test
 
 Four-stage pipeline, all state in a single SQLite file (`data/ajap.db`):
 
-1. **Ingest** (`ajap/ingest.py`) — polls SimplifyJobs repo and public Greenhouse/Lever/Workday boards; deduplicates via `SHA-256(company+title)`; writes raw rows.
+1. **Ingest** (`ajap/ingest.py`) — polls SimplifyJobs repo and public Greenhouse/Lever/Workday/Ashby boards; deduplicates via `SHA-256(company+title)`; writes raw rows.
 2. **Pre-filter** (`ajap/filter.py`) — regex whitelist/blacklist on title; marks non-matches `EVAL_REJECTED`.
 3. **Classify** (`ajap/classify.py`) — routes survivors via Gemini 2.5 Flash into `DATA_ENGINEERING` / `MLOPS_MLE` / `GENERAL_SWE` / `IGNORE`; attaches matching résumé path from `profile.json`.
 4. **Notify** (`ajap/notify.py`) — Discord webhook and/or email alerts on strong matches.

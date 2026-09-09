@@ -29,5 +29,11 @@
     "type": "workday_boards",
     "boards_file": "config/boards_workday.json",
     "role_type": "new_grad"
+  },
+  {
+    "name": "ashby-boards",
+    "type": "ashby_boards",
+    "boards_file": "config/boards_ashby.json",
+    "role_type": "new_grad"
   }
 ]

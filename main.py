@@ -330,7 +330,7 @@ def main() -> None:
     parser.add_argument(
         "--ingest-boards",
         action="store_true",
-        help="Ingest Greenhouse + Lever + Workday boards with inline descriptions",
+        help="Ingest Greenhouse + Lever + Workday + Ashby boards with inline descriptions",
     )
     parser.add_argument(
         "--match",
@@ -340,7 +340,7 @@ def main() -> None:
     parser.add_argument(
         "--dry-run-boards",
         action="store_true",
-        help="Fetch Greenhouse + Lever + Workday boards, apply pre-filter, report net-new (no DB writes)",
+        help="Fetch Greenhouse + Lever + Workday + Ashby boards, apply pre-filter, report net-new (no DB writes)",
     )
     parser.add_argument(
         "--limit",
