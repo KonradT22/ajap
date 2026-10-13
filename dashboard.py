@@ -17,6 +17,17 @@ DB_PATH = config.DB_PATH
 _VALID_STATUSES = {"NEW", "INTERESTED", "APPLIED", "SKIPPED", "INTERVIEWING", "REJECTED", "OFFER"}
 _VALID_SORTS = {"date_posted", "timestamp_discovered", "career_track", "company_name", "application_status", "fit_confidence"}
 
+PAGE_SIZE = 150
+
+# index.html never displays description/fit_reason/resume_why/classify_reason —
+# skip them in the list query; shortlist() (which does render description/fit_reason)
+# already caps itself at LIMIT 20 so it can keep using SELECT *.
+_LIST_COLUMNS = (
+    "job_hash, company_name, job_title, application_url, career_track, role_type, "
+    "source_name, date_posted, timestamp_discovered, locations_raw, "
+    "application_status, resume_pick, fit_confidence"
+)
+
 
 def _parse_location(raw: str | None) -> str:
     if not raw:
@@ -50,6 +61,7 @@ def _fmt_date(val: str | None) -> str:
 
 
 def _row_to_dict(row) -> dict:
+    keys = row.keys()
     return {
         "job_hash": row["job_hash"],
         "company_name": row["company_name"],
@@ -62,10 +74,10 @@ def _row_to_dict(row) -> dict:
         "timestamp_discovered": _fmt_date(row["timestamp_discovered"]),
         "location": _parse_location(row["locations_raw"]),
         "application_status": row["application_status"] or "NEW",
-        "description": row["description"] or "",
+        "description": (row["description"] or "") if "description" in keys else "",
         "resume_pick": row["resume_pick"] or "",
         "fit_confidence": row["fit_confidence"] or "",
-        "fit_reason": row["fit_reason"] or "",
+        "fit_reason": (row["fit_reason"] or "") if "fit_reason" in keys else "",
     }
 
 
@@ -87,39 +99,52 @@ def index():
     if sort_dir not in ("asc", "desc"):
         sort_dir = "desc"
 
-    query = "SELECT * FROM job_applications WHERE execution_status = 'PENDING_EXECUTION'"
+    page = request.args.get("page", 1, type=int) or 1
+    page = max(page, 1)
+
+    where = "WHERE execution_status = 'PENDING_EXECUTION'"
     params: list = []
 
     if track_filter:
-        query += " AND career_track = ?"
+        where += " AND career_track = ?"
         params.append(track_filter)
     if role_type_filter:
-        query += " AND role_type = ?"
+        where += " AND role_type = ?"
         params.append(role_type_filter)
     if source_filter:
-        query += " AND source_name = ?"
+        where += " AND source_name = ?"
         params.append(source_filter)
     if status_filter:
-        query += " AND application_status = ?"
+        where += " AND application_status = ?"
         params.append(status_filter)
     if fit_filter in ("STRONG", "MEDIUM", "WEAK"):
-        query += " AND fit_confidence = ?"
+        where += " AND fit_confidence = ?"
         params.append(fit_filter)
     if resume_filter:
-        query += " AND resume_pick = ?"
+        where += " AND resume_pick = ?"
         params.append(resume_filter)
     if location_filter:
-        query += " AND locations_raw LIKE ?"
+        where += " AND locations_raw LIKE ?"
         params.append(f"%{location_filter}%")
     if search:
-        query += " AND (company_name LIKE ? OR job_title LIKE ?)"
+        where += " AND (company_name LIKE ? OR job_title LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%"])
-
-    query += f" ORDER BY {sort_col} {sort_dir.upper()}"
 
     conn = db.get_conn(DB_PATH)
     try:
-        rows = conn.execute(query, params).fetchall()
+        total_matching = conn.execute(
+            f"SELECT COUNT(*) FROM job_applications {where}", params
+        ).fetchone()[0]
+
+        total_pages = max(1, -(-total_matching // PAGE_SIZE))
+        page = min(page, total_pages)
+        offset = (page - 1) * PAGE_SIZE
+
+        list_query = (
+            f"SELECT {_LIST_COLUMNS} FROM job_applications {where} "
+            f"ORDER BY {sort_col} {sort_dir.upper()} LIMIT ? OFFSET ?"
+        )
+        rows = conn.execute(list_query, [*params, PAGE_SIZE, offset]).fetchall()
         sources = [
             r[0] for r in conn.execute(
                 "SELECT DISTINCT source_name FROM job_applications "
@@ -143,7 +168,9 @@ def index():
     return render_template(
         "index.html",
         jobs=jobs,
-        total=len(jobs),
+        total=total_matching,
+        page=page,
+        total_pages=total_pages,
         sources=sources,
         stats=stats,
         track_filter=track_filter,

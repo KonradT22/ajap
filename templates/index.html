@@ -140,5 +140,22 @@
   </tbody>
 </table>
 </div>
+
+{% if total_pages > 1 %}
+{% set base_qs = 'sort=' + sort_col + '&dir=' + sort_dir + '&q=' + search + '&location=' + location_filter + '&track=' + track_filter + '&fit=' + fit_filter + '&resume=' + resume_filter + '&role_type=' + role_type_filter + '&source=' + source_filter + '&status=' + status_filter %}
+<nav class="d-flex justify-content-center align-items-center gap-2 mt-2">
+  {% if page > 1 %}
+  <a class="btn btn-sm btn-outline-secondary" href="/?{{ base_qs }}&page={{ page - 1 }}">&larr; Prev</a>
+  {% else %}
+  <span class="btn btn-sm btn-outline-secondary disabled">&larr; Prev</span>
+  {% endif %}
+  <span class="text-muted" style="font-size:0.8rem">Page {{ page }} of {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a class="btn btn-sm btn-outline-secondary" href="/?{{ base_qs }}&page={{ page + 1 }}">Next &rarr;</a>
+  {% else %}
+  <span class="btn btn-sm btn-outline-secondary disabled">Next &rarr;</span>
+  {% endif %}
+</nav>
+{% endif %}
 </div>
 {% endblock %}
