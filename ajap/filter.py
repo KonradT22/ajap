@@ -10,42 +10,52 @@ logger = logging.getLogger(__name__)
 
 FILTERS_PATH = Path("config/filters.json")
 
-# Substrings that, if found in a lowercased location string, indicate non-US.
-# Checked in order; first match wins. Deliberately conservative (high-recall):
-# ambiguous strings like "London" (no country) are left to pass.
+# Terms that, if found as a whole word in a lowercased location string, indicate
+# non-US. Deliberately conservative (high-recall): ambiguous strings with a real
+# US namesake — "London" (Ohio), "Paris" (Texas), "Manchester" (NH) — are left to
+# pass rather than risk dropping a real US posting.
+#
+# Poland is deliberately excluded: the user is authorized to work there, so
+# Polish listings should pass this gate same as US ones.
+#
+# Matched with \b...\b word boundaries, not substring `in` — a plain substring
+# check previously matched "india" inside "Indiana" and "mexico" inside
+# "New Mexico", silently rejecting real US postings in those states.
 _NON_US_MARKERS: tuple[str, ...] = (
-    "canada",
-    " uk",  # "Glasgow, UK" → ", uk" contains " uk"
-    "united kingdom",
-    "england",
-    "scotland",
-    "wales",
-    "germany",
-    "france",
-    "india",
-    "singapore",
-    "australia",
-    "china",
-    "ireland",
-    "japan",
-    "netherlands",
-    "sweden",
-    "poland",
-    "spain",
-    "portugal",
-    "norway",
-    "denmark",
-    "finland",
-    "switzerland",
-    "austria",
-    "belgium",
-    "brazil",
-    "mexico",
-    "israel",
-    "taiwan",
-    "south korea",
-    "new zealand",
-    "united arab emirates",
+    "canada", "uk", "united kingdom", "england", "scotland", "wales",
+    "germany", "france", "india", "singapore", "australia", "china",
+    "hong kong", "ireland", "japan", "netherlands", "sweden", "spain",
+    "portugal", "norway", "denmark", "finland", "switzerland", "austria",
+    "belgium", "brazil", "mexico", "israel", "taiwan", "south korea",
+    "new zealand", "united arab emirates",
+    "pakistan", "romania", "italy", "russia", "ukraine", "greece", "turkey",
+    "czech republic", "czechia", "hungary", "vietnam", "indonesia",
+    "malaysia", "philippines", "thailand", "egypt", "colombia", "argentina",
+    "chile", "south africa", "saudi arabia", "qatar", "bangladesh",
+    "luxembourg", "estonia", "latvia", "lithuania", "iceland", "slovakia",
+    "slovenia", "croatia", "serbia", "bulgaria", "nigeria", "kenya",
+)
+
+_NON_US_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(m) for m in _NON_US_MARKERS) + r")\b",
+    re.IGNORECASE,
+)
+
+# US postings are virtually always ASCII/Latin text. A location string with
+# CJK, Hangul, Cyrillic, Arabic, Hebrew, or Thai characters (e.g. a Tokyo
+# office address given in Japanese) is a reliable non-US signal that no
+# English marker string would catch.
+_NON_LATIN_RE = re.compile(
+    "["
+    "぀-ヿ"  # Hiragana, Katakana
+    "㐀-䶿"  # CJK extension A
+    "一-鿿"  # CJK unified ideographs
+    "가-힣"  # Hangul syllables
+    "Ѐ-ӿ"  # Cyrillic
+    "؀-ۿ"  # Arabic
+    "֐-׿"  # Hebrew
+    "฀-๿"  # Thai
+    "]"
 )
 
 
@@ -56,10 +66,18 @@ _NON_US_MARKERS: tuple[str, ...] = (
 _ISO3_SUFFIX_RE = re.compile(r",\s*([A-Z]{3})\s*$")
 
 
+# "New Mexico" is a US state whose name contains the country "Mexico" as a
+# genuine whole word, so the word-boundary marker check alone can't tell them
+# apart — strip it before matching.
+_NEW_MEXICO_RE = re.compile(r"\bnew mexico\b", re.IGNORECASE)
+
+
 def _is_non_us(loc: str) -> bool:
     """True if a single location string is clearly not US."""
-    l = loc.lower().strip()
-    if any(marker in l for marker in _NON_US_MARKERS):
+    stripped = _NEW_MEXICO_RE.sub("", loc)
+    if _NON_US_RE.search(stripped):
+        return True
+    if _NON_LATIN_RE.search(loc):
         return True
     m = _ISO3_SUFFIX_RE.search(loc.strip())
     return bool(m and m.group(1) != "USA")

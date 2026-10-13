@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 from ajap import config, db, ingest
-from ajap.filter import evaluate_with_reason
+from ajap.filter import _us_gate, evaluate_with_reason
 
 logging.basicConfig(
     level=logging.INFO,
@@ -149,6 +149,42 @@ def _run_refilter(db_path: str) -> None:
     )
     print(f"  Promoted      : {promoted:>6}  (from EVAL_REJECTED → QUEUED)")
     print(f"  QUEUED after  : {after_queued:>6}")
+
+
+def _run_clean_pending_geo(db_path: str) -> None:
+    """Re-check the US-location gate (only) on PENDING_EXECUTION rows.
+
+    These rows already made it through classify/match, so this intentionally
+    skips the recency/blacklist/whitelist gates — only location is re-checked.
+    Non-US rows are demoted to EVAL_REJECTED, dropping them off the dashboard.
+    Poland passes this gate like a US location (work-authorized exception).
+    """
+    db.migrate_db(db_path)
+    conn = db.get_conn(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT job_hash, company_name, job_title, locations_raw "
+            "FROM job_applications WHERE execution_status = 'PENDING_EXECUTION'"
+        ).fetchall()
+        demoted: list[tuple[str, str, str]] = []
+        for row in rows:
+            if not _us_gate({"locations_raw": row["locations_raw"]}):
+                db.update_status(conn, row["job_hash"], "EVAL_REJECTED")
+                demoted.append((row["company_name"], row["job_title"], row["locations_raw"]))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    print("\nPending geo-cleanup complete:")
+    print(f"  PENDING_EXECUTION checked: {len(rows):>6}")
+    print(f"  Demoted (non-US)         : {len(demoted):>6}")
+    if demoted:
+        print("\n  Demoted rows:")
+        for company, title, locs in demoted:
+            print(f"    {company:<25} | {title[:55]:<55} | {locs}")
 
 
 def _run_rebuild(db_path: str) -> None:
@@ -302,10 +338,23 @@ def main() -> None:
     parser.add_argument(
         "--refilter",
         action="store_true",
-        help="Re-evaluate QUEUED and EVAL_REJECTED rows; demote/promote as needed",
+        help=(
+            "Re-evaluate QUEUED and EVAL_REJECTED rows; demote/promote as "
+            "needed. Also re-checks the US-location gate on PENDING_EXECUTION "
+            "rows and demotes non-US ones"
+        ),
     )
     parser.add_argument(
         "--rebuild", action="store_true", help="Wipe the DB and re-ingest from scratch"
+    )
+    parser.add_argument(
+        "--clean-pending-geo",
+        action="store_true",
+        help=(
+            "Re-check the US-location gate on PENDING_EXECUTION rows only "
+            "(location gate alone, not the full refilter) and demote non-US "
+            "ones to EVAL_REJECTED; Poland passes like a US location"
+        ),
     )
     parser.add_argument(
         "--enrich",
@@ -362,6 +411,8 @@ def main() -> None:
         _run_rebuild(db_path)
     elif args.refilter:
         _run_refilter(db_path)
+    elif args.clean_pending_geo:
+        _run_clean_pending_geo(db_path)
     elif args.enrich:
         _run_enrich(db_path, args.limit)
     elif args.classify:
