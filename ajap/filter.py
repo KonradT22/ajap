@@ -11,16 +11,12 @@ logger = logging.getLogger(__name__)
 FILTERS_PATH = Path("config/filters.json")
 
 # Terms that, if found as a whole word in a lowercased location string, indicate
-# non-US. Deliberately conservative (high-recall): ambiguous strings with a real
-# US namesake — "London" (Ohio), "Paris" (Texas), "Manchester" (NH) — are left to
-# pass rather than risk dropping a real US posting.
+# non-US. Matched with \b...\b word boundaries, not substring `in` — a plain
+# substring check previously matched "india" inside "Indiana" and "mexico"
+# inside "New Mexico", silently rejecting real US postings in those states.
 #
 # Poland is deliberately excluded: the user is authorized to work there, so
 # Polish listings should pass this gate same as US ones.
-#
-# Matched with \b...\b word boundaries, not substring `in` — a plain substring
-# check previously matched "india" inside "Indiana" and "mexico" inside
-# "New Mexico", silently rejecting real US postings in those states.
 _NON_US_MARKERS: tuple[str, ...] = (
     "canada", "uk", "united kingdom", "england", "scotland", "wales",
     "germany", "france", "india", "singapore", "australia", "china",
@@ -36,10 +32,51 @@ _NON_US_MARKERS: tuple[str, ...] = (
     "slovenia", "croatia", "serbia", "bulgaria", "nigeria", "kenya",
 )
 
+# Bare city names (board postings routinely give the city with no country, e.g.
+# "Munich" or "London") for major non-US tech hubs that have no US namesake a
+# real new-grad SWE board would plausibly use. Kept separate from the country
+# list above because this is a riskier, deliberately curated set — each one
+# was checked against the live DB for a real US namesake before inclusion.
+#
+# Deliberately NOT included despite being non-US-leaning, because they also
+# name a real US tech hub and would cause false rejects: Cambridge (MA — MIT/
+# biotech hub), Dublin (CA/OH — Bay Area + Columbus tech), Bristol (CT/TN/VA),
+# Manchester (NH), Birmingham (AL), Melbourne (FL — aerospace/defense hub),
+# Geneva (IL — Chicago suburb), Vienna (VA — DC-area hub). "London" (Ohio) and
+# "Paris" (Texas) are included anyway since those namesakes are tiny towns
+# with no realistic tech-hiring presence.
+_NON_US_CITY_MARKERS: tuple[str, ...] = (
+    "london", "paris", "berlin", "amsterdam", "toronto", "munich",
+    "stockholm", "montreal", "tokyo", "bangalore", "bengaluru", "hyderabad",
+    "prague", "oakville", "madrid", "barcelona", "zurich", "milan",
+    "copenhagen", "oslo", "seoul", "beijing", "shanghai", "sydney",
+)
+
 _NON_US_RE = re.compile(
     r"\b(?:" + "|".join(re.escape(m) for m in _NON_US_MARKERS) + r")\b",
     re.IGNORECASE,
 )
+_NON_US_CITY_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(m) for m in _NON_US_CITY_MARKERS) + r")\b",
+    re.IGNORECASE,
+)
+
+# Vague tags board APIs use alongside a real location (e.g. speechify's board
+# pairs a specific city with the literal string "Distributed"). These carry no
+# location signal of their own and must not count as a "this location is
+# US-plausible" vote — otherwise ["Vienna, Austria", "Distributed"] passes
+# the gate purely because "Distributed" isn't flagged non-US, regardless of
+# what the real location says.
+_PLACEHOLDER_LOCATIONS: frozenset[str] = frozenset({
+    "distributed", "remote", "hybrid", "various", "various locations",
+    "n/a", "worldwide", "home based - worldwide",
+})
+_N_LOCATIONS_RE = re.compile(r"^\d+\s+locations?$", re.IGNORECASE)
+
+
+def _is_placeholder_location(loc: str) -> bool:
+    normalized = loc.strip().lower()
+    return normalized in _PLACEHOLDER_LOCATIONS or bool(_N_LOCATIONS_RE.match(normalized))
 
 # US postings are virtually always ASCII/Latin text. A location string with
 # CJK, Hangul, Cyrillic, Arabic, Hebrew, or Thai characters (e.g. a Tokyo
@@ -77,6 +114,8 @@ def _is_non_us(loc: str) -> bool:
     stripped = _NEW_MEXICO_RE.sub("", loc)
     if _NON_US_RE.search(stripped):
         return True
+    if _NON_US_CITY_RE.search(stripped):
+        return True
     if _NON_LATIN_RE.search(loc):
         return True
     m = _ISO3_SUFFIX_RE.search(loc.strip())
@@ -103,8 +142,17 @@ def _us_gate(job: dict) -> bool:
     if not locs:
         return True
 
+    # Vague tags like "Distributed" carry no location signal of their own —
+    # drop them before voting so they can't rubber-stamp a real foreign
+    # location sitting elsewhere in the same list. If that empties the list
+    # (e.g. ["Remote"] alone), fall through to the same high-recall keep as
+    # an empty/unspecified location list.
+    informative = [loc for loc in locs if not _is_placeholder_location(loc)]
+    if not informative:
+        return True
+
     # Keep if ANY location is US-plausible (not in non-US list)
-    return any(not _is_non_us(loc) for loc in locs)
+    return any(not _is_non_us(loc) for loc in informative)
 
 
 def load_filters() -> dict:
