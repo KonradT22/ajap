@@ -172,12 +172,22 @@ def match_one(
         um = resp.usage_metadata
         total_in += um.prompt_token_count or 0
         total_out += um.candidates_token_count or 0
-        parsed = _parse_json(resp.text or "")
+        try:
+            text = resp.text or ""
+        except ValueError as exc:
+            # resp.text raises (rather than returning None) when the candidate has
+            # no text parts, e.g. a safety-filtered or non-STOP-finish response.
+            logger.warning(
+                "No text in response (attempt %d) for '%s': %s",
+                attempt + 1, title, exc,
+            )
+            continue
+        parsed = _parse_json(text)
         if parsed:
             break
         logger.warning(
             "Non-conforming JSON (attempt %d) for '%s': %r",
-            attempt + 1, title, (resp.text or "")[:200],
+            attempt + 1, title, text[:200],
         )
 
     cost = total_in * _IN_COST_PER_TOKEN + total_out * _OUT_COST_PER_TOKEN
@@ -222,11 +232,21 @@ def run_match(db_path: str, limit: int | None = None) -> dict:
     conn = db.get_conn(db_path)
     try:
         for i, row in enumerate(rows):
-            result = match_one(
-                client, model,
-                row["job_title"], row["company_name"],
-                row["description"], row["career_track"],
-            )
+            try:
+                result = match_one(
+                    client, model,
+                    row["job_title"], row["company_name"],
+                    row["description"], row["career_track"],
+                )
+            except Exception as exc:
+                # Isolate per-row failures so one bad response can't abort the
+                # whole batch and leave every later row permanently unmatched.
+                logger.error(
+                    "Match error for '%s' (%s): %s",
+                    row["job_title"], row["job_hash"], exc,
+                )
+                failed += 1
+                continue
 
             total_in += result.input_tokens
             total_out += result.output_tokens
