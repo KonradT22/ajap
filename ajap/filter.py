@@ -108,9 +108,41 @@ _ISO3_SUFFIX_RE = re.compile(r",\s*([A-Z]{3})\s*$")
 # apart — strip it before matching.
 _NEW_MEXICO_RE = re.compile(r"\bnew mexico\b", re.IGNORECASE)
 
+# A trailing ", <state>" with an unambiguous US state abbreviation is a
+# stronger, more specific signal than any word/city marker — it overrides
+# city markers that happen to also name a real US place: "Berlin, CT" (a real
+# Hartford-area town), "New Berlin, WI" (a real Milwaukee suburb), "New
+# London, CT" (home of General Dynamics Electric Boat), "Turkey, TX" (a real,
+# if tiny, town) all share a word with a non-US marker but are unambiguously
+# US once the state code is checked.
+#
+# CA and DE are deliberately excluded: both are live collisions with a real
+# country code in this exact ", XX" suffix position in the actual feed data
+# — "Sydney, CA" (Canada) and "Munich, DE" (Germany) — so trusting them here
+# would un-reject genuinely foreign listings. Every other state code was
+# checked against the feed and found no such collision.
+_US_STATE_SUFFIX_RE = re.compile(
+    r",\s*(?:AL|AK|AZ|AR|CO|CT|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|"
+    r"MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|"
+    r"WA|WV|WI|WY)\s*$",
+    re.IGNORECASE,
+)
+
+# Some boards (tenstorrent, axq) describe a multi-office role as one
+# semicolon-joined string, e.g. "Austin, Texas, United States; Toronto,
+# Ontario, Canada" — a real US office sits right there, but a marker
+# matching elsewhere in that same string (toronto/canada) would otherwise
+# flag the whole thing non-US. An explicit "United States"/"USA" anywhere in
+# the string is unambiguous enough to override that.
+_US_LITERAL_RE = re.compile(r"\bunited states\b|\busa\b", re.IGNORECASE)
+
 
 def _is_non_us(loc: str) -> bool:
     """True if a single location string is clearly not US."""
+    if _US_LITERAL_RE.search(loc):
+        return False
+    if _US_STATE_SUFFIX_RE.search(loc.strip()):
+        return False
     stripped = _NEW_MEXICO_RE.sub("", loc)
     if _NON_US_RE.search(stripped):
         return True
